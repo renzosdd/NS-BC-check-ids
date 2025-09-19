@@ -44,15 +44,88 @@ function findSKU(){
   const b=getFallbackCandidates(); const fromFallback=pickSKU(b); if(fromFallback) return fromFallback;
   return null;
 }
-let lastDetectedSKU=null;
-function updateDetectedSKU(){
-  const sku=findSKU();
-  if(sku && sku!==lastDetectedSKU){ lastDetectedSKU=sku; chrome.runtime.sendMessage({type:"sku-detected", sku}); }
+function getFieldCandidates(field){
+  const names=[field,`${field}_display`];
+  const selectors=new Set();
+  for(const name of names){
+    selectors.add(`input[name="${name}"]`);
+    selectors.add(`input[id="${name}"]`);
+    selectors.add(`input[name$=".${name}"]`);
+    selectors.add(`input[id$="${name}"]`);
+    selectors.add(`[name="${name}"]`);
+    selectors.add(`#${name}`);
+    selectors.add(`[data-fieldid="${name}"] input`);
+    selectors.add(`[data-fieldid="${name}"] span`);
+    selectors.add(`[data-fieldid="${name}"] .uir-field-input`);
+    selectors.add(`[data-fieldid="${name}"] .uir-field-text`);
+    selectors.add(`span#${name}`);
+    selectors.add(`span[name="${name}"]`);
+    selectors.add(`span[id$="${name}"]`);
+  }
+  const vals=new Set();
+  selectors.forEach(sel=>{
+    document.querySelectorAll(sel).forEach(el=>{
+      let v=(el.tagName==="INPUT"||el.tagName==="TEXTAREA")?(el.value||""):(el.textContent||"");
+      v=(v||"").trim();
+      if(v) vals.add(v);
+    });
+  });
+  return Array.from(vals);
 }
-const obs=new MutationObserver(()=>updateDetectedSKU());
+function pickFieldValue(field){ const vals=getFieldCandidates(field); return vals.length?vals[0]:null; }
+function gatherBasePayload(){
+  const sku=findSKU();
+  const internalId=pickFieldValue("id");
+  const bcProductId=pickFieldValue("custitem_tt_bc_product_id");
+  const bcVariantId=pickFieldValue("custitem_tt_bc_variant_id");
+  return {
+    sku: sku||null,
+    internalId: internalId||null,
+    bcProductId: bcProductId||null,
+    bcVariantId: bcVariantId||null
+  };
+}
+function baseEquals(a,b){
+  if(!a&&!b) return true;
+  if(!a||!b) return false;
+  return (a.sku||null)===(b.sku||null)
+    && (a.internalId||null)===(b.internalId||null)
+    && (a.bcProductId||null)===(b.bcProductId||null)
+    && (a.bcVariantId||null)===(b.bcVariantId||null);
+}
+let lastDetectedPayload=null;
+function updateDetectedPayload(){
+  const base=gatherBasePayload();
+  const hasAny=!!(base.sku||base.internalId||base.bcProductId||base.bcVariantId);
+  if(!hasAny){
+    if(lastDetectedPayload!==null){
+      lastDetectedPayload=null;
+      chrome.runtime.sendMessage({type:"netsuite-detected", payload:null});
+    }
+    return;
+  }
+  const prevBase=lastDetectedPayload?{
+    sku:lastDetectedPayload.sku||null,
+    internalId:lastDetectedPayload.internalId||null,
+    bcProductId:lastDetectedPayload.bcProductId||null,
+    bcVariantId:lastDetectedPayload.bcVariantId||null
+  }:null;
+  if(!baseEquals(base,prevBase)){
+    lastDetectedPayload={...base, detectedAt: Date.now()};
+    chrome.runtime.sendMessage({type:"netsuite-detected", payload:lastDetectedPayload});
+  }
+}
+const obs=new MutationObserver(()=>updateDetectedPayload());
 obs.observe(document.documentElement,{childList:true,subtree:true});
-window.addEventListener('load',updateDetectedSKU);
-updateDetectedSKU();
+window.addEventListener('load',updateDetectedPayload);
+updateDetectedPayload();
 chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
-  if(msg?.type==="get-sku"){ updateDetectedSKU(); sendResponse({sku:lastDetectedSKU}); }
+  if(msg?.type==="get-sku"){
+    updateDetectedPayload();
+    const sku=lastDetectedPayload?lastDetectedPayload.sku||null:null;
+    sendResponse({sku,payload:lastDetectedPayload});
+  } else if(msg?.type==="get-detected-payload"){
+    updateDetectedPayload();
+    sendResponse({payload:lastDetectedPayload});
+  }
 });
