@@ -38,7 +38,7 @@ function authHeaders(cfg) {
 
 async function bcLookup(sku) {
   const cfg = await getSettingsUnlocked();
-  if (!cfg.storeHash || !cfg.accessToken) throw new Error("Config incompleta. Desbloqueá en Options.");
+  if (!cfg.storeHash || !cfg.accessToken) throw new Error("Incomplete configuration. Unlock in Options.");
   const base = `https://api.bigcommerce.com/stores/${cfg.storeHash}/v3`;
 
   // 1) variants?sku=
@@ -64,11 +64,11 @@ async function bcLookup(sku) {
     }
   }
 
-  throw new Error(`SKU "${sku}" no encontrado en BigCommerce.`);
+  throw new Error(`SKU "${sku}" not found in BigCommerce.`);
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.contextMenus.create({ id: "bc-lookup-selection", title: "Buscar en BigCommerce: \"%s\"", contexts: ["selection"] });
+  chrome.contextMenus.create({ id: "bc-lookup-selection", title: "Search in BigCommerce: \"%s\"", contexts: ["selection"] });
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -117,7 +117,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         // msg.bundle (encrypted), msg.passphrase
         const { bc_encrypted } = await getEncrypted();
         const bundle = msg.bundle || bc_encrypted;
-        if (!bundle) throw new Error("No hay credenciales guardadas.");
+        if (!bundle) throw new Error("No credentials saved.");
         const creds = await decryptJSON(bundle, msg.passphrase);
         await setUnlocked(creds);
         sendResponse({ ok: true });

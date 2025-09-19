@@ -9,25 +9,25 @@ async function saveEncrypted(){
     accessToken: $('accessToken').value.trim(),
     clientId: $('clientId').value.trim(),
   };
-  if (!pass) { alert('Definí una contraseña'); return; }
-  if (!obj.storeHash || !obj.accessToken) { alert('Store Hash y Access Token son obligatorios'); return; }
+  if (!pass) { alert('Set a password'); return; }
+  if (!obj.storeHash || !obj.accessToken) { alert('Store Hash and Access Token are required'); return; }
   const bundle = await encryptJSON(obj, pass);
   await new Promise(res => chrome.storage.local.set({ bc_encrypted: bundle }, res));
-  alert('Guardado cifrado.');
+  alert('Encrypted data saved.');
 }
 
 $('save').addEventListener('click', saveEncrypted);
 
 $('unlock').addEventListener('click', async () => {
   const pass = $('passphrase').value;
-  if (!pass) { alert('Ingresá tu contraseña'); return; }
+  if (!pass) { alert('Enter your password'); return; }
   const res = await chrome.runtime.sendMessage({ type: "unlock-creds", passphrase: pass });
-  $('out').textContent = res?.ok ? 'Desbloqueado ✅' : (res?.error || 'Error');
+  $('out').textContent = res?.ok ? 'Unlocked ✅' : (res?.error || 'Error');
 });
 
 $('lock').addEventListener('click', async () => {
   const res = await chrome.runtime.sendMessage({ type: "lock-creds" });
-  $('out').textContent = res?.ok ? 'Bloqueado 🔒' : (res?.error || 'Error');
+  $('out').textContent = res?.ok ? 'Locked 🔒' : (res?.error || 'Error');
 });
 
 $('testBtn').addEventListener('click', async () => {
