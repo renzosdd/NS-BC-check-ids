@@ -3,6 +3,7 @@ import { decryptJSON } from "./crypto.js";
 let unlockedCreds = null;
 let lastUseTs = 0;
 const IDLE_MS = 15 * 60 * 1000; // 15 minutes
+const lastDetectedByTab = new Map();
 
 async function getEncrypted() {
   const defaults = { bc_encrypted: null };
@@ -70,6 +71,10 @@ chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({ id: "bc-lookup-selection", title: "Buscar en BigCommerce: \"%s\"", contexts: ["selection"] });
 });
 
+chrome.tabs.onRemoved.addListener((tabId) => {
+  lastDetectedByTab.delete(tabId);
+});
+
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === "bc-lookup-selection" && info.selectionText) {
     const sku = info.selectionText.trim();
@@ -83,6 +88,26 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 });
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.type === "netsuite-detected") {
+    const tabId = sender.tab?.id;
+    if (tabId != null) {
+      if (msg.payload) {
+        lastDetectedByTab.set(tabId, { ...msg.payload });
+      } else {
+        lastDetectedByTab.delete(tabId);
+      }
+    }
+    sendResponse({ ok: true });
+    return;
+  }
+
+  if (msg?.type === "get-last-detected") {
+    const tabId = msg.tabId ?? sender.tab?.id ?? null;
+    const payload = tabId != null ? (lastDetectedByTab.get(tabId) || null) : null;
+    sendResponse({ ok: true, payload });
+    return;
+  }
+
   (async () => {
     try {
       if (msg?.type === "bc-lookup") {
