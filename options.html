@@ -1,0 +1,54 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BC SKU Lookup • Options (Secure)</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; max-width: 760px; }
+    label { display:block; margin-top: 12px; font-weight: 600; }
+    input { width: 100%; padding: 8px; border-radius: 8px; border: 1px solid #ccc; }
+    button { padding: 10px 14px; border-radius: 8px; border: none; background: #4f46e5; color: #fff; font-weight: 700; cursor: pointer; margin-top: 16px; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .muted { color: #666; font-size: 12px; }
+    pre { background: #f7f7ff; border: 1px solid #e0e0ff; padding: 8px; border-radius: 8px; white-space: pre-wrap; }
+    .warn { background: #fff7ed; border: 1px solid #fed7aa; padding: 10px; border-radius: 8px; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>BigCommerce SKU Lookup • Options (Secure)</h2>
+  <p class="muted">Tus credenciales se guardan cifradas con una <b>contraseña</b> que definís acá. La extensión solo las descifra en memoria por 15 minutos de inactividad.</p>
+
+  <div class="warn">Importante: esto mejora la privacidad, pero no reemplaza un backend. En un navegador, un usuario avanzado aún puede inspeccionar red/memoria.</div>
+
+  <label>Contraseña (para cifrar/descifrar)</label>
+  <input id="passphrase" placeholder="Definí una contraseña" type="password" />
+
+  <label>Store Hash</label>
+  <input id="storeHash" placeholder="ej: abcdefg" />
+
+  <label>Access Token</label>
+  <input id="accessToken" placeholder="Access Token" />
+
+  <label>Client ID (opcional)</label>
+  <input id="clientId" placeholder="Client ID (si tu setup lo requiere)" />
+
+  <button id="save">Guardar cifrado</button>
+
+  <h3>Probar lookup</h3>
+  <div class="row">
+    <div>
+      <label>SKU de prueba</label>
+      <input id="testSku" placeholder="Ingresá un SKU" />
+      <button id="unlock">Desbloquear</button>
+      <button id="testBtn">Probar Lookup</button>
+      <button id="lock">Bloquear</button>
+    </div>
+    <div>
+      <label>Resultado</label>
+      <pre id="out"></pre>
+    </div>
+  </div>
+
+  <script type="module" src="options-secure.js"></script>
+</body>
+</html>

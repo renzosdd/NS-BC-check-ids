@@ -1,0 +1,55 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BC SKU Lookup</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 12px; width: 340px; }
+    .section { background: #ffffff; border: 1px solid #e5e7eb; border-radius: 12px; padding: 10px; margin-bottom: 10px; }
+    .title { font-weight: 700; font-size: 16px; margin: 0 0 8px 0; display: flex; align-items: center; gap: 8px; }
+    .muted { color: #6b7280; font-size: 12px; }
+    .row { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; }
+    input { width: 100%; padding: 8px; font-size: 14px; border-radius: 8px; border: 1px solid #d1d5db; box-sizing: border-box; }
+    .btn { padding: 8px 10px; border-radius: 8px; border: none; font-weight: 600; cursor: pointer; }
+    .btn.primary { background: #4f46e5; color: #fff; }
+    .btn.secondary { background: #f3f4f6; color: #111827; border: 1px solid #e5e7eb; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .kv { display: grid; grid-template-columns: 105px 1fr auto; gap: 6px; align-items: center; padding: 6px; border: 1px solid #eef2ff; background: #f8fafc; border-radius: 10px; }
+    .kv label { font-size: 12px; color: #475569; font-weight: 600; }
+    .kv code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 2px 6px; border-radius: 6px; background: #fff; border: 1px solid #e5e7eb; word-break: break-all; }
+    .copy { font-size: 12px; }
+    .status { font-size: 12px; margin-top: 6px; }
+    .status.ok { color: #059669; }
+    .status.bad { color: #dc2626; }
+    .toast { position: fixed; bottom: 8px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 6px 10px; border-radius: 999px; font-size: 12px; opacity: 0; transition: opacity .2s; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+  <div class="section">
+    <div class="title">BigCommerce SKU Lookup</div>
+    <div class="row" style="grid-template-columns: 1fr auto;">
+      <input id="sku" placeholder="SKU..." />
+      <button class="btn secondary" id="useDetected">Usar detectada</button>
+    </div>
+    <div class="grid-3" style="margin-top:8px;">
+      <button class="btn primary" id="lookup">Buscar</button>
+      <button class="btn secondary" id="openOptions">Options</button>
+      <button class="btn secondary" id="unlockBtn">Unlock</button>
+    </div>
+    <div id="status" class="status muted"></div>
+  </div>
+
+  <div class="section">
+    <div class="title">Resultado</div>
+    <div id="result">
+      <div class="muted">Sin resultados aún.</div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">Copiado</div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
