@@ -16,7 +16,7 @@ function setStatus(msg, ok=null){
 
 function toast(msg){
   const t = $('toast');
-  t.textContent = msg || 'Copiado';
+  t.textContent = msg || 'Copied';
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 900);
 }
@@ -30,9 +30,9 @@ function attachCopyHandlers(root){
       if (text) {
         try {
           await navigator.clipboard.writeText(text);
-          toast('Copiado');
+          toast('Copied');
         } catch (e) {
-          toast('No se pudo copiar');
+          toast('Could not copy');
         }
       }
     });
@@ -66,7 +66,7 @@ function renderIdRow(label, id, value) {
     <div class="id-row">
       <div class="id-label">${escapeHtml(label)}</div>
       <code class="id-value" id="${id}">${display}</code>
-      <button class="btn ghost copy" data-copy="#${id}">Copiar</button>
+      <button class="btn ghost copy" data-copy="#${id}">Copy</button>
     </div>
   `;
 }
@@ -102,8 +102,8 @@ function updateComparisonSection(){
 
   const netsuite = latestNetSuitePayload || {};
   const bc = lastSearchResult || {};
-  const detectionLabel = netsuite?.detectedAt ? formatTimestamp(netsuite.detectedAt) : 'sin registro';
-  const sourceLabel = bc?.source ? bc.source : 'Desconocida';
+  const detectionLabel = netsuite?.detectedAt ? formatTimestamp(netsuite.detectedAt) : 'no record';
+  const sourceLabel = bc?.source ? bc.source : 'Unknown';
   const fetchedLabel = bc?.fetchedAt ? formatTimestamp(bc.fetchedAt) : null;
   const bcInfo = fetchedLabel ? `${sourceLabel} · ${fetchedLabel}` : sourceLabel;
 
@@ -124,13 +124,13 @@ function updateComparisonSection(){
       const missingSides = [];
       if (!nsHas) missingSides.push('NetSuite');
       if (!bcHas) missingSides.push('BigCommerce');
-      issues.push({ type: 'missing', message: `${label}: falta dato en ${missingSides.join(' y ')}` });
+      issues.push({ type: 'missing', message: `${label}: missing data in ${missingSides.join(' and ')}` });
     } else if (nsNormalized !== bcNormalized) {
       state = 'mismatch';
-      issues.push({ type: 'mismatch', message: `${label}: los IDs no coinciden` });
+      issues.push({ type: 'mismatch', message: `${label}: IDs do not match` });
     }
-    const stateLabel = state === 'match' ? 'Coincide' : state === 'missing' ? 'Falta dato' : 'No coincide';
-    const tooltip = `NetSuite (${detectionLabel}): ${nsHas ? nsNormalized : 'sin dato'}\nBigCommerce (${bcInfo}): ${bcHas ? bcNormalized : 'sin dato'}`;
+    const stateLabel = state === 'match' ? 'Match' : state === 'missing' ? 'Missing data' : 'Mismatch';
+    const tooltip = `NetSuite (${detectionLabel}): ${nsHas ? nsNormalized : 'no data'}\nBigCommerce (${bcInfo}): ${bcHas ? bcNormalized : 'no data'}`;
     return `
       <div class="compare-row state-${state}" title="${escapeHtml(tooltip)}">
         <div class="compare-top">
@@ -164,7 +164,7 @@ function renderBCCard(data){
 
   if (!data) {
     lastSearchResult = null;
-    if (meta) meta.textContent = 'Consultá un SKU para ver IDs.';
+    if (meta) meta.textContent = 'Look up an SKU to view IDs.';
     if (header) header.removeAttribute('title');
     details.innerHTML = '';
     card.classList.add('hidden');
@@ -177,11 +177,11 @@ function renderBCCard(data){
 
   card.classList.remove('hidden');
 
-  const sourceText = normalized.source ? `Fuente: ${normalized.source}` : 'Fuente desconocida';
+  const sourceText = normalized.source ? `Source: ${normalized.source}` : 'Unknown source';
   if (meta) meta.textContent = sourceText;
   if (header) {
-    const headerSource = normalized.source ? `Fuente: ${normalized.source}` : 'Fuente desconocida';
-    header.title = `${headerSource} · Consultado ${formatTimestamp(normalized.fetchedAt)}`;
+    const headerSource = normalized.source ? `Source: ${normalized.source}` : 'Unknown source';
+    header.title = `${headerSource} · Retrieved ${formatTimestamp(normalized.fetchedAt)}`;
   }
 
   details.innerHTML = [
@@ -210,7 +210,7 @@ function renderNetSuite(payload){
   const hasAny = payload && (payload.sku || payload.internalId || payload.bcProductId || payload.bcVariantId);
 
   if (!hasAny) {
-    root.innerHTML = '<div class="placeholder muted">Sin datos detectados.</div>';
+    root.innerHTML = '<div class="placeholder muted">No detected data.</div>';
   } else {
     const { sku=null, internalId=null, bcProductId=null, bcVariantId=null } = payload;
     root.innerHTML = [
@@ -224,18 +224,18 @@ function renderNetSuite(payload){
 
   if (meta) {
     if (payload?.detectedAt) {
-      meta.textContent = `Detectado: ${formatTimestamp(payload.detectedAt)}`;
+      meta.textContent = `Detected: ${formatTimestamp(payload.detectedAt)}`;
     } else if (hasAny) {
-      meta.textContent = 'Detectado recientemente.';
+      meta.textContent = 'Detected recently.';
     } else {
-      meta.textContent = 'Esperando datos detectados.';
+      meta.textContent = 'Waiting for detected data.';
     }
   }
 
   if (header) {
     header.title = payload?.detectedAt
-      ? `Detectado en NetSuite el ${formatTimestamp(payload.detectedAt)}`
-      : 'Sin registro de detección.';
+      ? `Detected in NetSuite on ${formatTimestamp(payload.detectedAt)}`
+      : 'No detection record.';
   }
 
   updateComparisonSection();
@@ -284,9 +284,9 @@ async function applyDetectedFromPage(context='load'){
   if (!tab) {
     renderNetSuite(null);
     if (context === 'use') {
-      setStatus('No hay pestaña activa.', false);
+      setStatus('No active tab.', false);
     } else {
-      setStatus('No se detectó SKU. Podés ingresarla manualmente.', null);
+      setStatus('No SKU detected. You can enter it manually.', null);
     }
     return null;
   }
@@ -299,35 +299,35 @@ async function applyDetectedFromPage(context='load'){
     const hasAny = payload && (payload.sku || payload.internalId || payload.bcProductId || payload.bcVariantId);
     if (context === 'load') {
       if (payload?.sku) {
-        setStatus('SKU detectada automáticamente.', true);
+        setStatus('SKU detected automatically.', true);
       } else if (hasAny) {
-        setStatus('Datos de NetSuite detectados automáticamente.', true);
+        setStatus('NetSuite data detected automatically.', true);
       } else {
-        setStatus('No se detectó SKU. Podés ingresarla manualmente.', null);
+        setStatus('No SKU detected. You can enter it manually.', null);
       }
     } else if (context === 'use') {
       if (payload?.sku) {
-        setStatus('SKU detectada y aplicada.', true);
+        setStatus('Detected SKU applied.', true);
       } else if (hasAny) {
-        setStatus('Se detectaron datos de NetSuite, pero sin SKU.', true);
+        setStatus('Detected NetSuite data, but no SKU.', true);
       } else {
-        setStatus('No se detectó SKU en esta página.', false);
+        setStatus('No SKU detected on this page.', false);
       }
     }
     return payload;
   } catch (e) {
     renderNetSuite(null);
-    setStatus('No se pudo leer la página actual (¿es NetSuite?).', false);
+    setStatus('Could not read the current page (is it NetSuite?).', false);
     return null;
   }
 }
 
 // Unlock flow
 $('unlockBtn').addEventListener('click', async () => {
-  const pass = prompt('Ingresá tu contraseña para desbloquear credenciales:');
+  const pass = prompt('Enter your password to unlock credentials:');
   if (!pass) return;
   const res = await chrome.runtime.sendMessage({ type: "unlock-creds", passphrase: pass });
-  setStatus(res?.ok ? 'Credenciales desbloqueadas ✅' : (res?.error || 'Error'), !!res?.ok);
+  setStatus(res?.ok ? 'Credentials unlocked ✅' : (res?.error || 'Error'), !!res?.ok);
 });
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -341,8 +341,8 @@ $('useDetected').addEventListener('click', () => {
 
 $('lookup').addEventListener('click', async () => {
   const sku = $('sku').value.trim();
-  if (!sku) { setStatus('Ingresá un SKU.', false); return; }
-  setStatus('Consultando...');
+  if (!sku) { setStatus('Enter an SKU.', false); return; }
+  setStatus('Looking up...');
   const res = await chrome.runtime.sendMessage({ type: "bc-lookup", sku });
   if (res?.ok) {
     renderBCCard(res.data);
@@ -351,7 +351,7 @@ $('lookup').addEventListener('click', async () => {
     renderBCCard(null);
     setStatus(res?.error || 'Error', false);
     if (/LOCKED/.test(res?.error||'')) {
-      setStatus('Bloqueado 🔒 — usá "Unlock" o Options para desbloquear.', false);
+      setStatus('Locked 🔒 — use "Unlock" or Options to unlock.', false);
     }
   }
 });

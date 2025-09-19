@@ -16,35 +16,35 @@
 </head>
 <body>
   <h2>BigCommerce SKU Lookup • Options (Secure)</h2>
-  <p class="muted">Tus credenciales se guardan cifradas con una <b>contraseña</b> que definís acá. La extensión solo las descifra en memoria por 15 minutos de inactividad.</p>
+  <p class="muted">Your credentials are stored encrypted with a <b>password</b> you define here. The extension only decrypts them in memory for 15 minutes of inactivity.</p>
 
-  <div class="warn">Importante: esto mejora la privacidad, pero no reemplaza un backend. En un navegador, un usuario avanzado aún puede inspeccionar red/memoria.</div>
+  <div class="warn">Important: this improves privacy but does not replace a backend. In a browser, an advanced user can still inspect network traffic or memory.</div>
 
-  <label>Contraseña (para cifrar/descifrar)</label>
-  <input id="passphrase" placeholder="Definí una contraseña" type="password" />
+  <label>Password (for encryption/decryption)</label>
+  <input id="passphrase" placeholder="Set a password" type="password" />
 
   <label>Store Hash</label>
-  <input id="storeHash" placeholder="ej: abcdefg" />
+  <input id="storeHash" placeholder="e.g. abcdefg" />
 
   <label>Access Token</label>
   <input id="accessToken" placeholder="Access Token" />
 
-  <label>Client ID (opcional)</label>
-  <input id="clientId" placeholder="Client ID (si tu setup lo requiere)" />
+  <label>Client ID (optional)</label>
+  <input id="clientId" placeholder="Client ID (if your setup needs it)" />
 
-  <button id="save">Guardar cifrado</button>
+  <button id="save">Save encrypted</button>
 
-  <h3>Probar lookup</h3>
+  <h3>Test lookup</h3>
   <div class="row">
     <div>
-      <label>SKU de prueba</label>
-      <input id="testSku" placeholder="Ingresá un SKU" />
-      <button id="unlock">Desbloquear</button>
-      <button id="testBtn">Probar Lookup</button>
-      <button id="lock">Bloquear</button>
+      <label>Test SKU</label>
+      <input id="testSku" placeholder="Enter an SKU" />
+      <button id="unlock">Unlock</button>
+      <button id="testBtn">Run lookup</button>
+      <button id="lock">Lock</button>
     </div>
     <div>
-      <label>Resultado</label>
+      <label>Result</label>
       <pre id="out"></pre>
     </div>
   </div>
