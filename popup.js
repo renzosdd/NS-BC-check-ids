@@ -1,5 +1,8 @@
 function $(id){ return document.getElementById(id); }
 
+let latestNetSuitePayload = null;
+let lastSearchResult = null;
+
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab;
@@ -36,32 +39,159 @@ function attachCopyHandlers(root){
   });
 }
 
-function renderResult(data){
-  const root = $('result');
-  if (!data){
-    root.innerHTML = '<div class="muted">Sin resultados aún.</div>';
+function escapeHtml(value) {
+  if (value === null || value === undefined) return '';
+  return String(value).replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&': return '&amp;';
+      case '<': return '&lt;';
+      case '>': return '&gt;';
+      case '"': return '&quot;';
+      case "'": return '&#39;';
+      default: return char;
+    }
+  });
+}
+
+function normalizeValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'string') return value.trim();
+  return String(value);
+}
+
+function renderIdRow(label, id, value) {
+  const normalized = normalizeValue(value);
+  const display = normalized !== '' ? escapeHtml(normalized) : '&mdash;';
+  return `
+    <div class="id-row">
+      <div class="id-label">${escapeHtml(label)}</div>
+      <code class="id-value" id="${id}">${display}</code>
+      <button class="btn ghost copy" data-copy="#${id}">Copiar</button>
+    </div>
+  `;
+}
+
+function updateBanner(issues = []){
+  const banner = $('comparisonBanner');
+  if (!banner) return;
+  banner.classList.remove('is-error', 'is-warning');
+  if (!issues.length) {
+    banner.textContent = '';
+    banner.classList.add('hidden');
     return;
   }
-  const { sku, bc_product_id, bc_variant_id, source } = data;
-  root.innerHTML = `
-    <div class="kv">
-      <label>SKU</label>
-      <code id="val-sku">${sku ?? ''}</code>
-      <button class="btn secondary copy" data-copy="#val-sku">Copiar</button>
-    </div>
-    <div class="kv" style="margin-top:6px;">
-      <label>Product ID</label>
-      <code id="val-pid">${bc_product_id ?? ''}</code>
-      <button class="btn secondary copy" data-copy="#val-pid">Copiar</button>
-    </div>
-    <div class="kv" style="margin-top:6px;">
-      <label>Variant ID</label>
-      <code id="val-vid">${bc_variant_id ?? ''}</code>
-      <button class="btn secondary copy" data-copy="#val-vid">Copiar</button>
-    </div>
-    <div class="muted" style="margin-top:6px;">Fuente: ${source || '-'}</div>
-  `;
-  attachCopyHandlers(root);
+  const hasMismatch = issues.some(issue => issue.type === 'mismatch');
+  banner.textContent = issues.map(issue => issue.message).join(' • ');
+  banner.classList.remove('hidden');
+  banner.classList.add(hasMismatch ? 'is-error' : 'is-warning');
+}
+
+function updateComparisonSection(){
+  const section = $('comparisonSection');
+  const resultsEl = $('comparisonResults');
+  if (!section || !resultsEl) return;
+
+  if (!lastSearchResult) {
+    resultsEl.innerHTML = '';
+    updateBanner([]);
+    section.classList.add('hidden');
+    return;
+  }
+
+  section.classList.remove('hidden');
+
+  const netsuite = latestNetSuitePayload || {};
+  const bc = lastSearchResult || {};
+  const detectionLabel = netsuite?.detectedAt ? formatTimestamp(netsuite.detectedAt) : 'sin registro';
+  const sourceLabel = bc?.source ? bc.source : 'Desconocida';
+  const fetchedLabel = bc?.fetchedAt ? formatTimestamp(bc.fetchedAt) : null;
+  const bcInfo = fetchedLabel ? `${sourceLabel} · ${fetchedLabel}` : sourceLabel;
+
+  const comparisons = [
+    { label: 'Product ID', nsValue: netsuite?.bcProductId, bcValue: bc?.bc_product_id },
+    { label: 'Variant ID', nsValue: netsuite?.bcVariantId, bcValue: bc?.bc_variant_id },
+  ];
+
+  const issues = [];
+  const rows = comparisons.map(({ label, nsValue, bcValue }) => {
+    const nsNormalized = normalizeValue(nsValue);
+    const bcNormalized = normalizeValue(bcValue);
+    const nsHas = nsNormalized !== '';
+    const bcHas = bcNormalized !== '';
+    let state = 'match';
+    if (!nsHas || !bcHas) {
+      state = 'missing';
+      const missingSides = [];
+      if (!nsHas) missingSides.push('NetSuite');
+      if (!bcHas) missingSides.push('BigCommerce');
+      issues.push({ type: 'missing', message: `${label}: falta dato en ${missingSides.join(' y ')}` });
+    } else if (nsNormalized !== bcNormalized) {
+      state = 'mismatch';
+      issues.push({ type: 'mismatch', message: `${label}: los IDs no coinciden` });
+    }
+    const stateLabel = state === 'match' ? 'Coincide' : state === 'missing' ? 'Falta dato' : 'No coincide';
+    const tooltip = `NetSuite (${detectionLabel}): ${nsHas ? nsNormalized : 'sin dato'}\nBigCommerce (${bcInfo}): ${bcHas ? bcNormalized : 'sin dato'}`;
+    return `
+      <div class="compare-row state-${state}" title="${escapeHtml(tooltip)}">
+        <div class="compare-top">
+          <span class="compare-label">${escapeHtml(label)}</span>
+          <span class="state-chip">${escapeHtml(stateLabel)}</span>
+        </div>
+        <div class="compare-values">
+          <div class="source-value">
+            <span class="source-label">NetSuite</span>
+            <code>${nsHas ? escapeHtml(nsNormalized) : '&mdash;'}</code>
+          </div>
+          <div class="source-value">
+            <span class="source-label">BigCommerce</span>
+            <code>${bcHas ? escapeHtml(bcNormalized) : '&mdash;'}</code>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  resultsEl.innerHTML = rows;
+  updateBanner(issues);
+}
+
+function renderBCCard(data){
+  const card = $('bigcommerceCard');
+  const details = $('bcDetails');
+  const meta = $('bcMeta');
+  const header = $('bcHeader');
+  if (!card || !details) return;
+
+  if (!data) {
+    lastSearchResult = null;
+    if (meta) meta.textContent = 'Consultá un SKU para ver IDs.';
+    if (header) header.removeAttribute('title');
+    details.innerHTML = '';
+    card.classList.add('hidden');
+    updateComparisonSection();
+    return;
+  }
+
+  const normalized = { ...data, fetchedAt: Date.now() };
+  lastSearchResult = normalized;
+
+  card.classList.remove('hidden');
+
+  const sourceText = normalized.source ? `Fuente: ${normalized.source}` : 'Fuente desconocida';
+  if (meta) meta.textContent = sourceText;
+  if (header) {
+    const headerSource = normalized.source ? `Fuente: ${normalized.source}` : 'Fuente desconocida';
+    header.title = `${headerSource} · Consultado ${formatTimestamp(normalized.fetchedAt)}`;
+  }
+
+  details.innerHTML = [
+    renderIdRow('SKU', 'bc-sku', normalized.sku ?? ''),
+    renderIdRow('Product ID', 'bc-product', normalized.bc_product_id ?? ''),
+    renderIdRow('Variant ID', 'bc-variant', normalized.bc_variant_id ?? '')
+  ].join('');
+
+  attachCopyHandlers(card);
+  updateComparisonSection();
 }
 
 function formatTimestamp(ts){
@@ -71,38 +201,44 @@ function formatTimestamp(ts){
 }
 
 function renderNetSuite(payload){
-  const root = $('netsuite');
+  latestNetSuitePayload = payload || null;
+  const root = $('netsuiteBody');
+  const meta = $('netsuiteMeta');
+  const header = $('netsuiteHeader');
   if (!root) return;
+
   const hasAny = payload && (payload.sku || payload.internalId || payload.bcProductId || payload.bcVariantId);
+
   if (!hasAny) {
-    root.innerHTML = '<div class="muted">Sin datos detectados.</div>';
-    return;
+    root.innerHTML = '<div class="placeholder muted">Sin datos detectados.</div>';
+  } else {
+    const { sku=null, internalId=null, bcProductId=null, bcVariantId=null } = payload;
+    root.innerHTML = [
+      renderIdRow('SKU', 'ns-sku', sku),
+      renderIdRow('Internal ID', 'ns-internal', internalId),
+      renderIdRow('BC Product ID', 'ns-bc-product', bcProductId),
+      renderIdRow('BC Variant ID', 'ns-bc-variant', bcVariantId)
+    ].join('');
+    attachCopyHandlers(root);
   }
-  const { sku=null, internalId=null, bcProductId=null, bcVariantId=null, detectedAt=null } = payload;
-  root.innerHTML = `
-    <div class="kv">
-      <label>SKU</label>
-      <code id="ns-sku">${sku ?? ''}</code>
-      <button class="btn secondary copy" data-copy="#ns-sku">Copiar</button>
-    </div>
-    <div class="kv" style="margin-top:6px;">
-      <label>Internal ID</label>
-      <code id="ns-internal">${internalId ?? ''}</code>
-      <button class="btn secondary copy" data-copy="#ns-internal">Copiar</button>
-    </div>
-    <div class="kv" style="margin-top:6px;">
-      <label>BC Product ID</label>
-      <code id="ns-bc-product">${bcProductId ?? ''}</code>
-      <button class="btn secondary copy" data-copy="#ns-bc-product">Copiar</button>
-    </div>
-    <div class="kv" style="margin-top:6px;">
-      <label>BC Variant ID</label>
-      <code id="ns-bc-variant">${bcVariantId ?? ''}</code>
-      <button class="btn secondary copy" data-copy="#ns-bc-variant">Copiar</button>
-    </div>
-    <div class="muted" style="margin-top:6px;">Actualizado: ${formatTimestamp(detectedAt)}</div>
-  `;
-  attachCopyHandlers(root);
+
+  if (meta) {
+    if (payload?.detectedAt) {
+      meta.textContent = `Detectado: ${formatTimestamp(payload.detectedAt)}`;
+    } else if (hasAny) {
+      meta.textContent = 'Detectado recientemente.';
+    } else {
+      meta.textContent = 'Esperando datos detectados.';
+    }
+  }
+
+  if (header) {
+    header.title = payload?.detectedAt
+      ? `Detectado en NetSuite el ${formatTimestamp(payload.detectedAt)}`
+      : 'Sin registro de detección.';
+  }
+
+  updateComparisonSection();
 }
 
 async function fetchDetectedPayloadForTab(tabId){
@@ -209,10 +345,10 @@ $('lookup').addEventListener('click', async () => {
   setStatus('Consultando...');
   const res = await chrome.runtime.sendMessage({ type: "bc-lookup", sku });
   if (res?.ok) {
-    renderResult(res.data);
+    renderBCCard(res.data);
     setStatus('OK', true);
   } else {
-    renderResult(null);
+    renderBCCard(null);
     setStatus(res?.error || 'Error', false);
     if (/LOCKED/.test(res?.error||'')) {
       setStatus('Bloqueado 🔒 — usá "Unlock" o Options para desbloquear.', false);
@@ -223,11 +359,11 @@ $('lookup').addEventListener('click', async () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "bc-lookup-result") {
     if (msg.result && !msg.result.error) {
-      renderResult(msg.result);
+      renderBCCard(msg.result);
       setStatus('OK', true);
       if (!$('sku').value) $('sku').value = msg.sku || '';
     } else {
-      renderResult(null);
+      renderBCCard(null);
       setStatus(msg.result?.error || 'Error', false);
     }
   }
