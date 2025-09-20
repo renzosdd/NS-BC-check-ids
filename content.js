@@ -58,6 +58,8 @@ function collectSkuDetection(){
 function getFieldCandidates(field){
   const names=[field,`${field}_display`];
   const selectors=new Set();
+  const labelSelectors=new Set();
+  const labelValueSelectors=[".uir-field-value",".inputreadonly",".value",".smalltextnolink"];
   for(const name of names){
     selectors.add(`input[name="${name}"]`);
     selectors.add(`input[id="${name}"]`);
@@ -109,8 +111,53 @@ function getFieldCandidates(field){
         selectors.add(`${baseSel}${suffix}`);
       }
     }
+    labelSelectors.add(`#${name}_fs_lbl`);
+    labelSelectors.add(`#${name}_lbl`);
+    labelSelectors.add(`[id^="${name}_"][id$="_fs_lbl"]`);
+    labelSelectors.add(`[id*="${name}"][id$="_fs_lbl"]`);
+    labelSelectors.add(`[id^="${name}_"][id$="_lbl"]`);
+    labelSelectors.add(`[id*="${name}"][id$="_lbl"]`);
+    labelSelectors.add(`[data-fieldid="${name}"] label`);
+    labelSelectors.add(`[data-fieldid="${name}"] .uir-label`);
+    labelSelectors.add(`label[for="${name}"]`);
   }
   const vals=new Set();
+  const labelElements=new Set();
+  labelSelectors.forEach(sel=>{
+    document.querySelectorAll(sel).forEach(el=>labelElements.add(el));
+  });
+  labelElements.forEach(label=>{
+    const container=label.closest('tr,div,li');
+    if(!container) return;
+    const roots=new Set([container]);
+    const addSearchRoot=el=>{
+      if(!el||el.nodeType!==1) return;
+      let shouldAdd=!!(el.classList&&el.classList.contains('uir-field-wrapper'));
+      if(!shouldAdd){
+        for(const sel of labelValueSelectors){
+          if((el.matches&&el.matches(sel))||(el.querySelector&&el.querySelector(sel))){
+            shouldAdd=true;
+            break;
+          }
+        }
+      }
+      if(shouldAdd) roots.add(el);
+    };
+    addSearchRoot(container.previousElementSibling);
+    addSearchRoot(container.nextElementSibling);
+    roots.forEach(root=>{
+      for(const sel of labelValueSelectors){
+        if(root.matches&&root.matches(sel)){
+          const t=(root.textContent||"").trim();
+          if(t) vals.add(t);
+        }
+        root.querySelectorAll(sel).forEach(node=>{
+          const v=(node.textContent||"").trim();
+          if(v) vals.add(v);
+        });
+      }
+    });
+  });
   selectors.forEach(sel=>{
     document.querySelectorAll(sel).forEach(el=>{
       let v=(el.tagName==="INPUT"||el.tagName==="TEXTAREA")?(el.value||""):(el.textContent||"");
