@@ -1,6 +1,7 @@
 function $(id){ return document.getElementById(id); }
 
 let latestNetSuitePayload = null;
+let lastSearchResult = null;
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -68,12 +69,14 @@ function normalizeValue(value) {
 }
 
 function renderIdRow(label, id, value, options = {}) {
-  const { copy = false, highlight = false } = options;
+  const { copy = false, highlight = false, matchState = null } = options;
   const normalized = normalizeValue(value);
   const display = normalized !== '' ? escapeHtml(normalized) : '&mdash;';
   const classes = ['id-row'];
   if (copy) classes.push('has-action');
   if (highlight) classes.push('highlight');
+  if (matchState === 'match') classes.push('match');
+  else if (matchState === 'mismatch') classes.push('mismatch');
   const copyButton = copy ? `<button class="btn ghost copy" data-copy="#${id}">Copy</button>` : '';
   return `
     <div class="${classes.join(' ')}">
@@ -82,6 +85,16 @@ function renderIdRow(label, id, value, options = {}) {
       ${copyButton}
     </div>
   `;
+}
+
+function determineMatchState(netsuiteValue, bcValue) {
+  const ns = normalizeValue(netsuiteValue);
+  const bc = normalizeValue(bcValue);
+  const nsEmpty = ns === '';
+  const bcEmpty = bc === '';
+  if (nsEmpty && bcEmpty) return null;
+  if (nsEmpty || bcEmpty) return 'mismatch';
+  return ns === bc ? 'match' : 'mismatch';
 }
 
 function renderIdSummary(){
@@ -94,16 +107,19 @@ function renderIdSummary(){
   if (!card || !nsRoot) return;
 
   const netsuite = latestNetSuitePayload || null;
+  const bcResult = lastSearchResult || null;
 
   const nsHasAny = netsuite && (netsuite.sku || netsuite.internalId || netsuite.bcProductId || netsuite.bcVariantId);
 
   if (nsHasAny) {
     const { sku=null, internalId=null, bcProductId=null, bcVariantId=null } = netsuite;
+    const productMatchState = bcResult ? determineMatchState(bcProductId, bcResult.bc_product_id) : null;
+    const variantMatchState = bcResult ? determineMatchState(bcVariantId, bcResult.bc_variant_id) : null;
     nsRoot.innerHTML = [
       renderIdRow('SKU', 'ns-sku', sku),
       renderIdRow('Internal ID', 'ns-internal', internalId),
-      renderIdRow('BC Product ID', 'ns-bc-product', bcProductId),
-      renderIdRow('BC Variant ID', 'ns-bc-variant', bcVariantId)
+      renderIdRow('BC Product ID', 'ns-bc-product', bcProductId, { matchState: productMatchState }),
+      renderIdRow('BC Variant ID', 'ns-bc-variant', bcVariantId, { matchState: variantMatchState })
     ].join('');
   } else {
     nsRoot.innerHTML = '<div class="placeholder muted">No detected data.</div>';
@@ -138,7 +154,10 @@ function renderIdSummary(){
   attachCopyHandlers(card);
 }
 
-function renderBCCard(){
+function renderBCCard(result){
+  if (arguments.length > 0) {
+    lastSearchResult = (result && typeof result === 'object' && !result.error) ? result : null;
+  }
   renderIdSummary();
 }
 
@@ -262,10 +281,10 @@ $('lookup').addEventListener('click', async () => {
   setStatus('Looking up...');
   const res = await chrome.runtime.sendMessage({ type: "bc-lookup", sku });
   if (res?.ok) {
-    renderBCCard();
+    renderBCCard(res?.data ?? null);
     setStatus('OK', true);
   } else {
-    renderBCCard();
+    renderBCCard(null);
     setStatus(res?.error || 'Error', false);
     if (/LOCKED/.test(res?.error||'')) {
       setStatus('Locked 🔒 — use "Unlock" or Options to unlock.', false);
@@ -276,11 +295,11 @@ $('lookup').addEventListener('click', async () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "bc-lookup-result") {
     if (msg.result && !msg.result.error) {
-      renderBCCard();
+      renderBCCard(msg.result);
       setStatus('OK', true);
       if (!$('sku').value) $('sku').value = msg.sku || '';
     } else {
-      renderBCCard();
+      renderBCCard(null);
       setStatus(msg.result?.error || 'Error', false);
     }
   }
