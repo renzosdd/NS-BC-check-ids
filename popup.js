@@ -140,29 +140,15 @@ function renderIdSummary(){
   }
 
   if (nsMeta) {
-    if (netsuite?.detectedAt) {
-      nsMeta.textContent = `Detected: ${formatTimestamp(netsuite.detectedAt)}`;
-    } else if (nsHasAny) {
-      nsMeta.textContent = 'Detected recently.';
-    } else {
-      nsMeta.textContent = 'Waiting for detected data.';
-    }
+    nsMeta.textContent = nsHasAny ? 'NetSuite IDs detected.' : 'Waiting for detected data.';
   }
 
   if (header) {
-    header.title = netsuite?.detectedAt
-      ? `NetSuite detected on ${formatTimestamp(netsuite.detectedAt)}`
-      : 'No NetSuite detection record.';
+    header.removeAttribute('title');
   }
 
   if (summaryMeta) {
-    if (netsuite?.detectedAt) {
-      summaryMeta.textContent = `NetSuite detection: ${formatTimestamp(netsuite.detectedAt)}`;
-    } else if (nsHasAny) {
-      summaryMeta.textContent = 'NetSuite detection available.';
-    } else {
-      summaryMeta.textContent = 'Waiting for detected NetSuite data.';
-    }
+    summaryMeta.textContent = 'Review detected NetSuite identifiers.';
   }
 
   let bcMetaText = 'Run a lookup to compare.';
@@ -213,11 +199,6 @@ function renderBCCard(result){
   renderIdSummary();
 }
 
-function formatTimestamp(ts){
-  if(!ts && ts!==0) return '-';
-  const date = new Date(ts);
-  return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString();
-}
 
 function renderNetSuite(payload){
   latestNetSuitePayload = payload || null;
@@ -246,9 +227,9 @@ async function fetchDetectedPayloadForTab(tabId){
         if (res && Object.prototype.hasOwnProperty.call(res, 'payload')) {
           payload = res.payload ?? null;
         } else if (res) {
-          const { sku=null, internalId=null, bcProductId=null, bcVariantId=null, detectedAt=null } = res;
-          if (sku || internalId || bcProductId || bcVariantId || detectedAt) {
-            payload = { sku, internalId, bcProductId, bcVariantId, detectedAt };
+          const { sku=null, internalId=null, bcProductId=null, bcVariantId=null } = res;
+          if (sku || internalId || bcProductId || bcVariantId) {
+            payload = { sku, internalId, bcProductId, bcVariantId };
           }
         }
       }
