@@ -68,139 +68,104 @@ function normalizeValue(value) {
   return String(value);
 }
 
-function renderIdRow(label, id, value) {
+function renderIdRow(label, id, value, options = {}) {
+  const { copy = false, highlight = false } = options;
   const normalized = normalizeValue(value);
   const display = normalized !== '' ? escapeHtml(normalized) : '&mdash;';
+  const classes = ['id-row'];
+  if (copy) classes.push('has-action');
+  if (highlight) classes.push('highlight');
+  const copyButton = copy ? `<button class="btn ghost copy" data-copy="#${id}">Copy</button>` : '';
   return `
-    <div class="id-row">
+    <div class="${classes.join(' ')}">
       <div class="id-label">${escapeHtml(label)}</div>
       <code class="id-value" id="${id}">${display}</code>
-      <button class="btn ghost copy" data-copy="#${id}">Copy</button>
+      ${copyButton}
     </div>
   `;
 }
 
-function updateBanner(issues = []){
-  const banner = $('comparisonBanner');
-  if (!banner) return;
-  banner.classList.remove('is-error', 'is-warning');
-  if (!issues.length) {
-    banner.textContent = '';
-    banner.classList.add('hidden');
-    return;
+function renderIdSummary(){
+  const card = $('idSummaryCard');
+  const nsRoot = $('netsuiteSummary');
+  const bcRoot = $('bcSummary');
+  const nsMeta = $('netsuiteMeta');
+  const bcMeta = $('bcMeta');
+  const header = $('summaryHeader');
+  const summaryMeta = $('summaryMeta');
+
+  if (!card || !nsRoot || !bcRoot) return;
+
+  const netsuite = latestNetSuitePayload || null;
+  const bc = lastSearchResult || null;
+
+  const nsHasAny = netsuite && (netsuite.sku || netsuite.internalId || netsuite.bcProductId || netsuite.bcVariantId);
+  const bcHasAny = bc && (bc.sku || bc.bc_product_id || bc.bc_variant_id);
+
+  if (nsHasAny) {
+    const { sku=null, internalId=null, bcProductId=null, bcVariantId=null } = netsuite;
+    nsRoot.innerHTML = [
+      renderIdRow('SKU', 'ns-sku', sku),
+      renderIdRow('Internal ID', 'ns-internal', internalId),
+      renderIdRow('BC Product ID', 'ns-bc-product', bcProductId),
+      renderIdRow('BC Variant ID', 'ns-bc-variant', bcVariantId)
+    ].join('');
+  } else {
+    nsRoot.innerHTML = '<div class="placeholder muted">No detected data.</div>';
   }
-  const hasMismatch = issues.some(issue => issue.type === 'mismatch');
-  banner.textContent = issues.map(issue => issue.message).join(' • ');
-  banner.classList.remove('hidden');
-  banner.classList.add(hasMismatch ? 'is-error' : 'is-warning');
-}
 
-function updateComparisonSection(){
-  const section = $('comparisonSection');
-  const resultsEl = $('comparisonResults');
-  if (!section || !resultsEl) return;
-
-  if (!lastSearchResult) {
-    resultsEl.innerHTML = '';
-    updateBanner([]);
-    section.classList.add('hidden');
-    return;
+  if (bcHasAny) {
+    const { sku=null, bc_product_id=null, bc_variant_id=null } = bc;
+    bcRoot.innerHTML = [
+      renderIdRow('SKU', 'bc-sku', sku),
+      renderIdRow('Product ID', 'bc-product', bc_product_id, { copy: true, highlight: true }),
+      renderIdRow('Variant ID', 'bc-variant', bc_variant_id, { copy: true, highlight: true })
+    ].join('');
+  } else {
+    bcRoot.innerHTML = '<div class="placeholder muted">No lookup data yet.</div>';
   }
 
-  section.classList.remove('hidden');
-
-  const netsuite = latestNetSuitePayload || {};
-  const bc = lastSearchResult || {};
-  const detectionLabel = netsuite?.detectedAt ? formatTimestamp(netsuite.detectedAt) : 'no record';
-  const sourceLabel = bc?.source ? bc.source : 'Unknown';
-  const fetchedLabel = bc?.fetchedAt ? formatTimestamp(bc.fetchedAt) : null;
-  const bcInfo = fetchedLabel ? `${sourceLabel} · ${fetchedLabel}` : sourceLabel;
-
-  const comparisons = [
-    { label: 'Product ID', nsValue: netsuite?.bcProductId, bcValue: bc?.bc_product_id },
-    { label: 'Variant ID', nsValue: netsuite?.bcVariantId, bcValue: bc?.bc_variant_id },
-  ];
-
-  const issues = [];
-  const rows = comparisons.map(({ label, nsValue, bcValue }) => {
-    const nsNormalized = normalizeValue(nsValue);
-    const bcNormalized = normalizeValue(bcValue);
-    const nsHas = nsNormalized !== '';
-    const bcHas = bcNormalized !== '';
-    let state = 'match';
-    if (!nsHas || !bcHas) {
-      state = 'missing';
-      const missingSides = [];
-      if (!nsHas) missingSides.push('NetSuite');
-      if (!bcHas) missingSides.push('BigCommerce');
-      issues.push({ type: 'missing', message: `${label}: missing data in ${missingSides.join(' and ')}` });
-    } else if (nsNormalized !== bcNormalized) {
-      state = 'mismatch';
-      issues.push({ type: 'mismatch', message: `${label}: IDs do not match` });
+  if (nsMeta) {
+    if (netsuite?.detectedAt) {
+      nsMeta.textContent = `Detected: ${formatTimestamp(netsuite.detectedAt)}`;
+    } else if (nsHasAny) {
+      nsMeta.textContent = 'Detected recently.';
+    } else {
+      nsMeta.textContent = 'Waiting for detected data.';
     }
-    const stateLabel = state === 'match' ? 'Match' : state === 'missing' ? 'Missing data' : 'Mismatch';
-    const tooltip = `NetSuite (${detectionLabel}): ${nsHas ? nsNormalized : 'no data'}\nBigCommerce (${bcInfo}): ${bcHas ? bcNormalized : 'no data'}`;
-    return `
-      <div class="compare-row state-${state}" title="${escapeHtml(tooltip)}">
-        <div class="compare-top">
-          <span class="compare-label">${escapeHtml(label)}</span>
-          <span class="state-chip">${escapeHtml(stateLabel)}</span>
-        </div>
-        <div class="compare-values">
-          <div class="source-value">
-            <span class="source-label">NetSuite</span>
-            <code>${nsHas ? escapeHtml(nsNormalized) : '&mdash;'}</code>
-          </div>
-          <div class="source-value">
-            <span class="source-label">BigCommerce</span>
-            <code>${bcHas ? escapeHtml(bcNormalized) : '&mdash;'}</code>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join('');
+  }
 
-  resultsEl.innerHTML = rows;
-  updateBanner(issues);
+  if (bcMeta) {
+    if (bc) {
+      const sourceText = bc.source ? `Source: ${bc.source}` : 'Unknown source';
+      bcMeta.textContent = sourceText;
+    } else {
+      bcMeta.textContent = 'Look up an SKU to view IDs.';
+    }
+  }
+
+  if (header) {
+    const nsTitle = netsuite?.detectedAt
+      ? `NetSuite detected on ${formatTimestamp(netsuite.detectedAt)}`
+      : 'No NetSuite detection record.';
+    const bcTitle = bc?.fetchedAt
+      ? `BigCommerce lookup on ${formatTimestamp(bc.fetchedAt)}`
+      : 'No BigCommerce lookup yet.';
+    header.title = `${nsTitle}\n${bcTitle}`;
+  }
+
+  if (summaryMeta) {
+    const nsPart = netsuite?.detectedAt ? `NetSuite: ${formatTimestamp(netsuite.detectedAt)}` : 'NetSuite: —';
+    const bcPart = bc?.fetchedAt ? `BigCommerce: ${formatTimestamp(bc.fetchedAt)}` : 'BigCommerce: —';
+    summaryMeta.textContent = `${nsPart} • ${bcPart}`;
+  }
+
+  attachCopyHandlers(card);
 }
 
 function renderBCCard(data){
-  const card = $('bigcommerceCard');
-  const details = $('bcDetails');
-  const meta = $('bcMeta');
-  const header = $('bcHeader');
-  if (!card || !details) return;
-
-  if (!data) {
-    lastSearchResult = null;
-    if (meta) meta.textContent = 'Look up an SKU to view IDs.';
-    if (header) header.removeAttribute('title');
-    details.innerHTML = '';
-    card.classList.add('hidden');
-    updateComparisonSection();
-    return;
-  }
-
-  const normalized = { ...data, fetchedAt: Date.now() };
-  lastSearchResult = normalized;
-
-  card.classList.remove('hidden');
-
-  const sourceText = normalized.source ? `Source: ${normalized.source}` : 'Unknown source';
-  if (meta) meta.textContent = sourceText;
-  if (header) {
-    const headerSource = normalized.source ? `Source: ${normalized.source}` : 'Unknown source';
-    header.title = `${headerSource} · Retrieved ${formatTimestamp(normalized.fetchedAt)}`;
-  }
-
-  details.innerHTML = [
-    renderIdRow('SKU', 'bc-sku', normalized.sku ?? ''),
-    renderIdRow('Product ID', 'bc-product', normalized.bc_product_id ?? ''),
-    renderIdRow('Variant ID', 'bc-variant', normalized.bc_variant_id ?? '')
-  ].join('');
-
-  attachCopyHandlers(card);
-  updateComparisonSection();
+  lastSearchResult = data ? { ...data, fetchedAt: Date.now() } : null;
+  renderIdSummary();
 }
 
 function formatTimestamp(ts){
@@ -211,43 +176,7 @@ function formatTimestamp(ts){
 
 function renderNetSuite(payload){
   latestNetSuitePayload = payload || null;
-  const root = $('netsuiteBody');
-  const meta = $('netsuiteMeta');
-  const header = $('netsuiteHeader');
-  if (!root) return;
-
-  const hasAny = payload && (payload.sku || payload.internalId || payload.bcProductId || payload.bcVariantId);
-
-  if (!hasAny) {
-    root.innerHTML = '<div class="placeholder muted">No detected data.</div>';
-  } else {
-    const { sku=null, internalId=null, bcProductId=null, bcVariantId=null } = payload;
-    root.innerHTML = [
-      renderIdRow('SKU', 'ns-sku', sku),
-      renderIdRow('Internal ID', 'ns-internal', internalId),
-      renderIdRow('BC Product ID', 'ns-bc-product', bcProductId),
-      renderIdRow('BC Variant ID', 'ns-bc-variant', bcVariantId)
-    ].join('');
-    attachCopyHandlers(root);
-  }
-
-  if (meta) {
-    if (payload?.detectedAt) {
-      meta.textContent = `Detected: ${formatTimestamp(payload.detectedAt)}`;
-    } else if (hasAny) {
-      meta.textContent = 'Detected recently.';
-    } else {
-      meta.textContent = 'Waiting for detected data.';
-    }
-  }
-
-  if (header) {
-    header.title = payload?.detectedAt
-      ? `Detected in NetSuite on ${formatTimestamp(payload.detectedAt)}`
-      : 'No detection record.';
-  }
-
-  updateComparisonSection();
+  renderIdSummary();
 }
 
 async function fetchDetectedPayloadForTab(tabId){
