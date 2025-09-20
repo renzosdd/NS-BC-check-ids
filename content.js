@@ -81,6 +81,23 @@ function getFieldCandidates(field){
     selectors.add(`[id*="${name}"][id$="_val"]`);
     selectors.add(`#${name}_val span`);
     selectors.add(`#${name}_val div`);
+    const fsBases=[
+      `#${name}_fs`,
+      `[id^="${name}_"][id$="_fs"]`,
+      `[id*="${name}"][id$="_fs"]`,
+      `div[id^="${name}_"][id$="_fs"]`,
+      `div[id*="${name}"][id$="_fs"]`,
+      `span[id^="${name}_"][id$="_fs"]`,
+      `span[id*="${name}"][id$="_fs"]`,
+      `td[id^="${name}_"][id$="_fs"]`,
+      `td[id*="${name}"][id$="_fs"]`
+    ];
+    const fsDescendants=[""," .uir-field"," .inputreadonly"," .value"," a"];
+    for(const baseSel of fsBases){
+      for(const suffix of fsDescendants){
+        selectors.add(`${baseSel}${suffix}`);
+      }
+    }
   }
   const vals=new Set();
   selectors.forEach(sel=>{
