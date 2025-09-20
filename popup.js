@@ -185,36 +185,46 @@ function renderIdSummary(){
 
   if (bcResult && bcRoot) {
     const comparisons = [
-      { id: 'product', label: 'BigCommerce value', nsValue: netsuiteBcProductId, bcValue: bcProductId, matchState: productMatchState },
-      { id: 'variant', label: 'BigCommerce variant value', nsValue: netsuiteBcVariantId, bcValue: bcVariantId, matchState: variantMatchState },
-      { id: 'sku', label: 'BigCommerce SKU', nsValue: netsuiteSku, bcValue: bcSku, matchState: skuMatchState }
+      { id: 'product', label: 'Product ID', nsValue: netsuiteBcProductId, bcValue: bcProductId, matchState: productMatchState },
+      { id: 'variant', label: 'Variant ID', nsValue: netsuiteBcVariantId, bcValue: bcVariantId, matchState: variantMatchState },
+      { id: 'sku', label: 'SKU', nsValue: netsuiteSku, bcValue: bcSku, matchState: skuMatchState }
     ];
 
     const rows = [];
+    let hasMismatch = false;
     comparisons.forEach(({ id, label, nsValue, bcValue, matchState }) => {
-      const nsEmpty = normalizeValue(nsValue) === '';
-      const bcEmpty = normalizeValue(bcValue) === '';
-      if (!nsEmpty || !bcEmpty) {
-        hasComparableValues = true;
+      const nsNormalized = normalizeValue(nsValue);
+      const bcNormalized = normalizeValue(bcValue);
+      const nsEmpty = nsNormalized === '';
+      const bcEmpty = bcNormalized === '';
+      if (nsEmpty && bcEmpty) {
+        return;
       }
-      const shouldShow = matchState === 'mismatch' || (nsEmpty && !bcEmpty);
-      if (shouldShow) {
-        rows.push(renderIdRow(label, `bc-${id}`, bcValue, { copy: true, matchState: 'mismatch' }));
+      hasComparableValues = true;
+      if (matchState === 'mismatch') {
+        hasMismatch = true;
       }
+      rows.push(renderIdRow(label, `bc-${id}`, bcValue, { copy: !bcEmpty, matchState }));
     });
 
     if (rows.length > 0) {
-      hasDifferences = true;
+      hasDifferences = hasMismatch;
       bcRoot.innerHTML = rows.join('');
       if (summaryGrid) summaryGrid.classList.add('has-bc');
-      bcMetaText = bcResult?.source
-        ? `Differences found · ${bcResult.source}`
-        : 'Differences found in BigCommerce.';
+      if (hasMismatch) {
+        bcMetaText = bcResult?.source
+          ? `Differences highlighted · ${bcResult.source}`
+          : 'Differences highlighted against NetSuite.';
+      } else {
+        bcMetaText = bcResult?.source
+          ? `All values matched · ${bcResult.source}`
+          : 'All BigCommerce values match NetSuite.';
+      }
     } else {
-      bcRoot.innerHTML = '<div class="placeholder muted">All values match NetSuite.</div>';
+      bcRoot.innerHTML = '<div class="placeholder muted">No BigCommerce values returned.</div>';
       bcMetaText = bcResult?.source
-        ? `All values match · ${bcResult.source}`
-        : 'All values match NetSuite.';
+        ? `No values returned · ${bcResult.source}`
+        : 'No BigCommerce values returned.';
     }
   } else if (bcRoot) {
     bcRoot.innerHTML = '<div class="placeholder muted">Run a lookup to compare.</div>';
