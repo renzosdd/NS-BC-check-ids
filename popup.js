@@ -2,6 +2,13 @@ function $(id){ return document.getElementById(id); }
 
 let latestNetSuitePayload = null;
 let lastSearchResult = null;
+let lastComparisonSummary = {
+  hasNetSuite: false,
+  hasBcResult: false,
+  hasDifferences: false,
+  hasComparableValues: false,
+  allMatch: false,
+};
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -19,8 +26,15 @@ async function requestBadgeRefresh(tabId = null) {
 
 function setStatus(msg, ok=null){
   const el = $('status');
+  const statusClass = (ok === true)
+    ? 'ok'
+    : (ok === false)
+      ? 'bad'
+      : (ok === 'warn')
+        ? 'warn'
+        : 'muted';
   el.textContent = msg || '';
-  el.className = 'status ' + (ok===true ? 'ok' : ok===false ? 'bad' : 'muted');
+  el.className = `status ${statusClass}`;
 }
 
 function toast(msg){
@@ -107,7 +121,18 @@ function renderIdSummary(){
   const summaryMeta = $('summaryMeta');
   const summaryGrid = $('summaryGrid');
 
-  if (!card || !nsRoot) return;
+  let comparisonSummary = {
+    hasNetSuite: false,
+    hasBcResult: false,
+    hasDifferences: false,
+    hasComparableValues: false,
+    allMatch: false,
+  };
+
+  if (!card || !nsRoot) {
+    lastComparisonSummary = comparisonSummary;
+    return comparisonSummary;
+  }
 
   const netsuite = latestNetSuitePayload || null;
   const bcResult = lastSearchResult || null;
@@ -127,6 +152,7 @@ function renderIdSummary(){
 
   const nsValues = netsuite ? [netsuiteSku, netsuiteInternalId, netsuiteBcProductId, netsuiteBcVariantId] : [];
   const nsHasAny = nsValues.some(value => normalizeValue(value) !== '');
+  comparisonSummary.hasNetSuite = nsHasAny;
 
   if (nsHasAny) {
     nsRoot.innerHTML = [
@@ -168,6 +194,9 @@ function renderIdSummary(){
   let bcMetaText = 'Run a lookup to compare.';
   if (summaryGrid) summaryGrid.classList.remove('has-bc');
 
+  let hasDifferences = false;
+  let hasComparableValues = false;
+
   if (bcResult && bcRoot) {
     const comparisons = [
       { id: 'product', label: 'BigCommerce value', nsValue: netsuiteBcProductId, bcValue: bcProductId, matchState: productMatchState },
@@ -179,6 +208,9 @@ function renderIdSummary(){
     comparisons.forEach(({ id, label, nsValue, bcValue, matchState }) => {
       const nsEmpty = normalizeValue(nsValue) === '';
       const bcEmpty = normalizeValue(bcValue) === '';
+      if (!nsEmpty || !bcEmpty) {
+        hasComparableValues = true;
+      }
       const shouldShow = matchState === 'mismatch' || (nsEmpty && !bcEmpty);
       if (shouldShow) {
         rows.push(renderIdRow(label, `bc-${id}`, bcValue, { copy: true, matchState: 'mismatch' }));
@@ -186,6 +218,7 @@ function renderIdSummary(){
     });
 
     if (rows.length > 0) {
+      hasDifferences = true;
       bcRoot.innerHTML = rows.join('');
       if (summaryGrid) summaryGrid.classList.add('has-bc');
       bcMetaText = bcResult?.source
@@ -201,16 +234,50 @@ function renderIdSummary(){
     bcRoot.innerHTML = '<div class="placeholder muted">Run a lookup to compare.</div>';
   }
 
+  comparisonSummary.hasBcResult = !!bcResult;
+  comparisonSummary.hasDifferences = hasDifferences;
+  comparisonSummary.hasComparableValues = !!bcResult && hasComparableValues;
+  if (comparisonSummary.hasBcResult) {
+    comparisonSummary.allMatch = comparisonSummary.hasComparableValues && !comparisonSummary.hasDifferences;
+  }
+
   if (bcMeta) bcMeta.textContent = bcMetaText;
 
   attachCopyHandlers(card);
+  lastComparisonSummary = comparisonSummary;
+  return comparisonSummary;
 }
 
 function renderBCCard(result){
   if (arguments.length > 0) {
     lastSearchResult = (result && typeof result === 'object' && !result.error) ? result : null;
   }
-  renderIdSummary();
+  return renderIdSummary();
+}
+
+function getLookupStatusFromSummary(summary) {
+  const effectiveSummary = (summary && typeof summary === 'object') ? summary : lastComparisonSummary;
+  if (!effectiveSummary || typeof effectiveSummary !== 'object') {
+    return { message: 'Lookup completed.', tone: null };
+  }
+  if (!effectiveSummary.hasBcResult) {
+    return { message: 'No BigCommerce results found.', tone: false };
+  }
+  if (effectiveSummary.hasDifferences) {
+    return { message: 'Discrepancies found between NetSuite and BigCommerce.', tone: 'warn' };
+  }
+  if (effectiveSummary.allMatch) {
+    return { message: 'All NetSuite and BigCommerce values match.', tone: true };
+  }
+  if (!effectiveSummary.hasComparableValues) {
+    return { message: 'Lookup completed, but there were no IDs to compare.', tone: null };
+  }
+  return { message: 'Lookup completed.', tone: null };
+}
+
+function applyLookupStatusFromSummary(summary) {
+  const { message, tone } = getLookupStatusFromSummary(summary);
+  setStatus(message, tone);
 }
 
 function formatTimestamp(ts){
@@ -333,8 +400,8 @@ $('lookup').addEventListener('click', async () => {
   setStatus('Looking up...');
   const res = await chrome.runtime.sendMessage({ type: "bc-lookup", sku });
   if (res?.ok) {
-    renderBCCard(res?.data ?? null);
-    setStatus('OK', true);
+    const summary = renderBCCard(res?.data ?? null);
+    applyLookupStatusFromSummary(summary);
   } else {
     renderBCCard(null);
     setStatus(res?.error || 'Error', false);
@@ -347,8 +414,8 @@ $('lookup').addEventListener('click', async () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "bc-lookup-result") {
     if (msg.result && !msg.result.error) {
-      renderBCCard(msg.result);
-      setStatus('OK', true);
+      const summary = renderBCCard(msg.result);
+      applyLookupStatusFromSummary(summary);
       if (!$('sku').value) $('sku').value = msg.sku || '';
     } else {
       renderBCCard(null);
