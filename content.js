@@ -230,7 +230,7 @@ function updateDetectedPayload(){
     skuCandidates:Array.isArray(lastDetectedPayload.skuCandidates)?lastDetectedPayload.skuCandidates.slice():[]
   }:null;
   if(!baseEquals(base,prevBase)){
-    lastDetectedPayload={...base, detectedAt: Date.now()};
+    lastDetectedPayload={...base};
     notifyDetection(lastDetectedPayload);
   }
 }
