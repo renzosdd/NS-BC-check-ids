@@ -92,7 +92,18 @@ function getFieldCandidates(field){
       `td[id^="${name}_"][id$="_fs"]`,
       `td[id*="${name}"][id$="_fs"]`
     ];
-    const fsDescendants=[""," .uir-field"," .inputreadonly"," .value"," a"];
+    const fsDescendants=[
+      "",
+      " .uir-field",
+      " .inputreadonly",
+      " .value",
+      " .value *",
+      " a",
+      " .uir-field-value",
+      " .uir-field-value *",
+      " .uir-field-wrapper",
+      " .uir-field-wrapper *"
+    ];
     for(const baseSel of fsBases){
       for(const suffix of fsDescendants){
         selectors.add(`${baseSel}${suffix}`);
