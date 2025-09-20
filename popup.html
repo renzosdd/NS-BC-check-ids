@@ -27,7 +27,6 @@
     .status.warn { color: #b45309; }
     .hidden { display: none !important; }
     .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: start; }
-    .summary-grid:not(.has-bc) #bigcommerceColumn { display: none; }
     .summary-column { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; }
     .summary-column .column-header { display: flex; flex-direction: column; gap: 4px; }
     .summary-column .column-title { font-weight: 600; font-size: 14px; color: #1f2937; }
@@ -45,6 +44,8 @@
     .id-row.mismatch .id-value { border-color: #fda4af; background: #fee2e2; color: #991b1b; }
     .id-label { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; }
     .id-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 4px 6px; border-radius: 6px; background: #ffffff; border: 1px solid #e5e7eb; min-height: 20px; display: flex; align-items: center; word-break: break-all; }
+    .comparison-note { grid-column: 1 / -1; font-size: 11px; color: #b91c1c; display: flex; gap: 4px; align-items: center; margin-top: 4px; }
+    .comparison-note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 2px 4px; border-radius: 4px; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
     .toast { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 12px; opacity: 0; transition: opacity .2s ease; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.3); }
     .toast.show { opacity: 1; }
   </style>
@@ -73,7 +74,7 @@
     <div class="card-header" id="summaryHeader">
       <div>
         <div class="card-title">ID Summary</div>
-        <div class="card-subtitle muted" id="summaryMeta">Review detected NetSuite identifiers.</div>
+        <div class="card-subtitle muted" id="summaryMeta">Review detected NetSuite identifiers. BigCommerce differences will appear inline after a lookup.</div>
       </div>
     </div>
     <div class="card-body">
@@ -85,15 +86,6 @@
           </div>
           <div class="id-list" id="netsuiteSummary">
             <div class="placeholder muted">No detected data.</div>
-          </div>
-        </div>
-        <div class="summary-column" id="bigcommerceColumn">
-          <div class="column-header">
-            <div class="column-title">BigCommerce</div>
-            <div class="column-meta" id="bigcommerceMeta">Run a lookup to compare.</div>
-          </div>
-          <div class="id-list" id="bigcommerceSummary">
-            <div class="placeholder muted">Run a lookup to compare.</div>
           </div>
         </div>
       </div>
