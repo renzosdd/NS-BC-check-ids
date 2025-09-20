@@ -65,6 +65,7 @@ function getFieldCandidates(field){
     selectors.add(`input[id$="${name}"]`);
     selectors.add(`[name="${name}"]`);
     selectors.add(`#${name}`);
+    selectors.add(`#${name}_val`);
     selectors.add(`[data-fieldid="${name}"] input`);
     selectors.add(`[data-fieldid="${name}"] span`);
     selectors.add(`[data-fieldid="${name}"] .uir-field-input`);
@@ -72,6 +73,14 @@ function getFieldCandidates(field){
     selectors.add(`span#${name}`);
     selectors.add(`span[name="${name}"]`);
     selectors.add(`span[id$="${name}"]`);
+    selectors.add(`span[id^="${name}_"][id$="_val"]`);
+    selectors.add(`span[id*="${name}"][id$="_val"]`);
+    selectors.add(`div[id^="${name}_"][id$="_val"]`);
+    selectors.add(`div[id*="${name}"][id$="_val"]`);
+    selectors.add(`[id^="${name}_"][id$="_val"]`);
+    selectors.add(`[id*="${name}"][id$="_val"]`);
+    selectors.add(`#${name}_val span`);
+    selectors.add(`#${name}_val div`);
   }
   const vals=new Set();
   selectors.forEach(sel=>{
