@@ -1,7 +1,6 @@
 function $(id){ return document.getElementById(id); }
 
 let latestNetSuitePayload = null;
-let lastSearchResult = null;
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -88,19 +87,15 @@ function renderIdRow(label, id, value, options = {}) {
 function renderIdSummary(){
   const card = $('idSummaryCard');
   const nsRoot = $('netsuiteSummary');
-  const bcRoot = $('bcSummary');
   const nsMeta = $('netsuiteMeta');
-  const bcMeta = $('bcMeta');
   const header = $('summaryHeader');
   const summaryMeta = $('summaryMeta');
 
-  if (!card || !nsRoot || !bcRoot) return;
+  if (!card || !nsRoot) return;
 
   const netsuite = latestNetSuitePayload || null;
-  const bc = lastSearchResult || null;
 
   const nsHasAny = netsuite && (netsuite.sku || netsuite.internalId || netsuite.bcProductId || netsuite.bcVariantId);
-  const bcHasAny = bc && (bc.sku || bc.bc_product_id || bc.bc_variant_id);
 
   if (nsHasAny) {
     const { sku=null, internalId=null, bcProductId=null, bcVariantId=null } = netsuite;
@@ -114,17 +109,6 @@ function renderIdSummary(){
     nsRoot.innerHTML = '<div class="placeholder muted">No detected data.</div>';
   }
 
-  if (bcHasAny) {
-    const { sku=null, bc_product_id=null, bc_variant_id=null } = bc;
-    bcRoot.innerHTML = [
-      renderIdRow('SKU', 'bc-sku', sku),
-      renderIdRow('Product ID', 'bc-product', bc_product_id, { copy: true, highlight: true }),
-      renderIdRow('Variant ID', 'bc-variant', bc_variant_id, { copy: true, highlight: true })
-    ].join('');
-  } else {
-    bcRoot.innerHTML = '<div class="placeholder muted">No lookup data yet.</div>';
-  }
-
   if (nsMeta) {
     if (netsuite?.detectedAt) {
       nsMeta.textContent = `Detected: ${formatTimestamp(netsuite.detectedAt)}`;
@@ -135,36 +119,26 @@ function renderIdSummary(){
     }
   }
 
-  if (bcMeta) {
-    if (bc) {
-      const sourceText = bc.source ? `Source: ${bc.source}` : 'Unknown source';
-      bcMeta.textContent = sourceText;
-    } else {
-      bcMeta.textContent = 'Look up an SKU to view IDs.';
-    }
-  }
-
   if (header) {
-    const nsTitle = netsuite?.detectedAt
+    header.title = netsuite?.detectedAt
       ? `NetSuite detected on ${formatTimestamp(netsuite.detectedAt)}`
       : 'No NetSuite detection record.';
-    const bcTitle = bc?.fetchedAt
-      ? `BigCommerce lookup on ${formatTimestamp(bc.fetchedAt)}`
-      : 'No BigCommerce lookup yet.';
-    header.title = `${nsTitle}\n${bcTitle}`;
   }
 
   if (summaryMeta) {
-    const nsPart = netsuite?.detectedAt ? `NetSuite: ${formatTimestamp(netsuite.detectedAt)}` : 'NetSuite: —';
-    const bcPart = bc?.fetchedAt ? `BigCommerce: ${formatTimestamp(bc.fetchedAt)}` : 'BigCommerce: —';
-    summaryMeta.textContent = `${nsPart} • ${bcPart}`;
+    if (netsuite?.detectedAt) {
+      summaryMeta.textContent = `NetSuite detection: ${formatTimestamp(netsuite.detectedAt)}`;
+    } else if (nsHasAny) {
+      summaryMeta.textContent = 'NetSuite detection available.';
+    } else {
+      summaryMeta.textContent = 'Waiting for detected NetSuite data.';
+    }
   }
 
   attachCopyHandlers(card);
 }
 
-function renderBCCard(data){
-  lastSearchResult = data ? { ...data, fetchedAt: Date.now() } : null;
+function renderBCCard(){
   renderIdSummary();
 }
 
@@ -288,10 +262,10 @@ $('lookup').addEventListener('click', async () => {
   setStatus('Looking up...');
   const res = await chrome.runtime.sendMessage({ type: "bc-lookup", sku });
   if (res?.ok) {
-    renderBCCard(res.data);
+    renderBCCard();
     setStatus('OK', true);
   } else {
-    renderBCCard(null);
+    renderBCCard();
     setStatus(res?.error || 'Error', false);
     if (/LOCKED/.test(res?.error||'')) {
       setStatus('Locked 🔒 — use "Unlock" or Options to unlock.', false);
@@ -302,11 +276,11 @@ $('lookup').addEventListener('click', async () => {
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg?.type === "bc-lookup-result") {
     if (msg.result && !msg.result.error) {
-      renderBCCard(msg.result);
+      renderBCCard();
       setStatus('OK', true);
       if (!$('sku').value) $('sku').value = msg.sku || '';
     } else {
-      renderBCCard(null);
+      renderBCCard();
       setStatus(msg.result?.error || 'Error', false);
     }
   }

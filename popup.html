@@ -25,7 +25,7 @@
     .status.ok { color: #047857; }
     .status.bad { color: #dc2626; }
     .hidden { display: none !important; }
-    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+    .summary-grid { display: flex; flex-direction: column; gap: 12px; }
     .summary-column { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; }
     .summary-column .column-header { display: flex; flex-direction: column; gap: 4px; }
     .summary-column .column-title { font-weight: 600; font-size: 14px; color: #1f2937; }
@@ -65,7 +65,7 @@
     <div class="card-header" id="summaryHeader">
       <div>
         <div class="card-title">ID Summary</div>
-        <div class="card-subtitle muted" id="summaryMeta">Review NetSuite detections alongside BigCommerce lookups.</div>
+        <div class="card-subtitle muted" id="summaryMeta">Review detected NetSuite identifiers.</div>
       </div>
     </div>
     <div class="card-body">
@@ -77,15 +77,6 @@
           </div>
           <div class="id-list" id="netsuiteSummary">
             <div class="placeholder muted">No detected data.</div>
-          </div>
-        </div>
-        <div class="summary-column" id="bcColumn">
-          <div class="column-header">
-            <div class="column-title">BigCommerce</div>
-            <div class="column-meta" id="bcMeta">Look up an SKU to view IDs.</div>
-          </div>
-          <div class="id-list" id="bcSummary">
-            <div class="placeholder muted">No lookup data yet.</div>
           </div>
         </div>
       </div>
