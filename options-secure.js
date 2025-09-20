@@ -2,6 +2,14 @@ import { encryptJSON } from "./crypto.js";
 
 function $(id){ return document.getElementById(id); }
 
+async function requestBadgeRefresh(){
+  try{
+    await chrome.runtime.sendMessage({ type: "refresh-badge" });
+  }catch(e){
+    // ignore background errors
+  }
+}
+
 async function saveEncrypted(){
   const pass = $('passphrase').value;
   const obj = {
@@ -23,11 +31,13 @@ $('unlock').addEventListener('click', async () => {
   if (!pass) { alert('Enter your password'); return; }
   const res = await chrome.runtime.sendMessage({ type: "unlock-creds", passphrase: pass });
   $('out').textContent = res?.ok ? 'Unlocked ✅' : (res?.error || 'Error');
+  await requestBadgeRefresh();
 });
 
 $('lock').addEventListener('click', async () => {
   const res = await chrome.runtime.sendMessage({ type: "lock-creds" });
   $('out').textContent = res?.ok ? 'Locked 🔒' : (res?.error || 'Error');
+  await requestBadgeRefresh();
 });
 
 $('testBtn').addEventListener('click', async () => {

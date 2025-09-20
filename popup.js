@@ -8,6 +8,15 @@ async function getActiveTab() {
   return tab;
 }
 
+async function requestBadgeRefresh(tabId = null) {
+  const message = tabId != null ? { type: "refresh-badge", tabId } : { type: "refresh-badge" };
+  try {
+    await chrome.runtime.sendMessage(message);
+  } catch (e) {
+    // ignore background errors
+  }
+}
+
 function setStatus(msg, ok=null){
   const el = $('status');
   el.textContent = msg || '';
@@ -288,10 +297,12 @@ async function applyDetectedFromPage(context='load'){
     } else {
       setStatus('No SKU detected. You can enter it manually.', null);
     }
+    await requestBadgeRefresh();
     return null;
   }
+  let payload = null;
   try {
-    const payload = await fetchDetectedPayloadForTab(tab.id);
+    payload = await fetchDetectedPayloadForTab(tab.id);
     renderNetSuite(payload);
     if (payload?.sku) {
       $('sku').value = payload.sku;
@@ -319,6 +330,8 @@ async function applyDetectedFromPage(context='load'){
     renderNetSuite(null);
     setStatus('Could not read the current page (is it NetSuite?).', false);
     return null;
+  } finally {
+    await requestBadgeRefresh(tab?.id ?? null);
   }
 }
 
@@ -328,6 +341,7 @@ $('unlockBtn').addEventListener('click', async () => {
   if (!pass) return;
   const res = await chrome.runtime.sendMessage({ type: "unlock-creds", passphrase: pass });
   setStatus(res?.ok ? 'Credentials unlocked ✅' : (res?.error || 'Error'), !!res?.ok);
+  await requestBadgeRefresh();
 });
 
 document.addEventListener('DOMContentLoaded', () => {
