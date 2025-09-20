@@ -25,8 +25,7 @@
     .status.ok { color: #047857; }
     .status.bad { color: #dc2626; }
     .hidden { display: none !important; }
-    .summary-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; align-items: start; }
-    .summary-grid:not(.has-bc) #bigcommerceColumn { display: none; }
+    .summary-grid { display: flex; flex-direction: column; gap: 12px; }
     .summary-column { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; }
     .summary-column .column-header { display: flex; flex-direction: column; gap: 4px; }
     .summary-column .column-title { font-weight: 600; font-size: 14px; color: #1f2937; }
@@ -42,6 +41,13 @@
     .id-row.mismatch { border-color: #fecaca; background: #fef2f2; box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.2); }
     .id-row.mismatch .id-label { color: #b91c1c; }
     .id-row.mismatch .id-value { border-color: #fda4af; background: #fee2e2; color: #991b1b; }
+    .id-row .bc-compare { grid-column: 1 / -1; margin-top: 8px; padding-top: 8px; border-top: 1px dashed #cbd5f5; display: grid; gap: 6px; }
+    .bc-compare-header { display: flex; justify-content: space-between; align-items: center; }
+    .bc-compare-title { font-size: 10px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; }
+    .bc-compare-value { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 4px 6px; border-radius: 6px; background: #f8fafc; border: 1px dashed #cbd5f5; color: #1e293b; word-break: break-all; }
+    .bc-compare .btn { padding: 4px 8px; font-size: 11px; border-radius: 8px; }
+    .id-row.mismatch .bc-compare-title { color: #b91c1c; }
+    .id-row.mismatch .bc-compare-value { border-color: #fda4af; background: #fee2e2; color: #991b1b; }
     .id-label { font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; letter-spacing: 0.05em; }
     .id-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 4px 6px; border-radius: 6px; background: #ffffff; border: 1px solid #e5e7eb; min-height: 20px; display: flex; align-items: center; word-break: break-all; }
     .toast { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 12px; opacity: 0; transition: opacity .2s ease; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.3); }
@@ -84,15 +90,6 @@
           </div>
           <div class="id-list" id="netsuiteSummary">
             <div class="placeholder muted">No detected data.</div>
-          </div>
-        </div>
-        <div class="summary-column" id="bigcommerceColumn">
-          <div class="column-header">
-            <div class="column-title">BigCommerce</div>
-            <div class="column-meta" id="bigcommerceMeta">Run a lookup to compare.</div>
-          </div>
-          <div class="id-list" id="bigcommerceSummary">
-            <div class="placeholder muted">Run a lookup to compare.</div>
           </div>
         </div>
       </div>

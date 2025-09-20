@@ -69,7 +69,7 @@ function normalizeValue(value) {
 }
 
 function renderIdRow(label, id, value, options = {}) {
-  const { copy = false, highlight = false, matchState = null } = options;
+  const { copy = false, highlight = false, matchState = null, bcDetail = null } = options;
   const normalized = normalizeValue(value);
   const display = normalized !== '' ? escapeHtml(normalized) : '&mdash;';
   const classes = ['id-row'];
@@ -78,10 +78,28 @@ function renderIdRow(label, id, value, options = {}) {
   if (matchState === 'match') classes.push('match');
   else if (matchState === 'mismatch') classes.push('mismatch');
   const copyButton = copy ? `<button class="btn ghost copy" data-copy="#${id}">Copy</button>` : '';
+  let bcBlock = '';
+  if (bcDetail) {
+    const bcId = bcDetail.id || `${id}-bc`;
+    const bcNormalized = normalizeValue(bcDetail.value);
+    const bcDisplay = bcNormalized !== '' ? escapeHtml(bcNormalized) : '&mdash;';
+    const showCopy = bcDetail.copy !== false && bcNormalized !== '';
+    const bcCopyButton = showCopy ? `<button class="btn ghost copy" data-copy="#${bcId}">Copy</button>` : '';
+    bcBlock = `
+      <div class="bc-compare">
+        <div class="bc-compare-header">
+          <span class="bc-compare-title">Valor BigCommerce</span>
+          ${bcCopyButton}
+        </div>
+        <code class="bc-compare-value" id="${bcId}">${bcDisplay}</code>
+      </div>
+    `;
+  }
   return `
     <div class="${classes.join(' ')}">
       <div class="id-label">${escapeHtml(label)}</div>
       <code class="id-value" id="${id}">${display}</code>
+      ${bcBlock}
       ${copyButton}
     </div>
   `;
@@ -97,15 +115,25 @@ function determineMatchState(netsuiteValue, bcValue) {
   return ns === bc ? 'match' : 'mismatch';
 }
 
+function buildBcDetail({ matchState, netsuiteValue, bcValue, id }) {
+  const nsNormalized = normalizeValue(netsuiteValue);
+  const bcNormalized = normalizeValue(bcValue);
+  if (matchState !== 'mismatch' && !(nsNormalized === '' && bcNormalized !== '')) {
+    return null;
+  }
+  return {
+    value: bcValue,
+    id,
+    copy: bcNormalized !== ''
+  };
+}
+
 function renderIdSummary(){
   const card = $('idSummaryCard');
   const nsRoot = $('netsuiteSummary');
   const nsMeta = $('netsuiteMeta');
-  const bcRoot = $('bigcommerceSummary');
-  const bcMeta = $('bigcommerceMeta');
   const header = $('summaryHeader');
   const summaryMeta = $('summaryMeta');
-  const summaryGrid = $('summaryGrid');
 
   if (!card || !nsRoot) return;
 
@@ -125,25 +153,60 @@ function renderIdSummary(){
   const variantMatchState = bcResult ? determineMatchState(netsuiteBcVariantId, bcVariantId) : null;
   const skuMatchState = bcResult ? determineMatchState(netsuiteSku, bcSku) : null;
 
-  const nsValues = netsuite ? [netsuiteSku, netsuiteInternalId, netsuiteBcProductId, netsuiteBcVariantId] : [];
-  const nsHasAny = nsValues.some(value => normalizeValue(value) !== '');
+  const rows = [];
+  const skuShouldRender = normalizeValue(netsuiteSku) !== '' || normalizeValue(bcSku) !== '';
+  if (skuShouldRender) {
+    const bcDetail = bcResult ? buildBcDetail({
+      matchState: skuMatchState,
+      netsuiteValue: netsuiteSku,
+      bcValue: bcSku,
+      id: 'bc-sku'
+    }) : null;
+    rows.push(renderIdRow('SKU', 'ns-sku', netsuiteSku, { matchState: skuMatchState, bcDetail }));
+  }
 
-  if (nsHasAny) {
-    nsRoot.innerHTML = [
-      renderIdRow('SKU', 'ns-sku', netsuiteSku, { matchState: skuMatchState }),
-      renderIdRow('Internal ID', 'ns-internal', netsuiteInternalId),
-      renderIdRow('BC Product ID', 'ns-bc-product', netsuiteBcProductId, { matchState: productMatchState }),
-      renderIdRow('BC Variant ID', 'ns-bc-variant', netsuiteBcVariantId, { matchState: variantMatchState })
-    ].join('');
+  if (normalizeValue(netsuiteInternalId) !== '') {
+    rows.push(renderIdRow('Internal ID', 'ns-internal', netsuiteInternalId));
+  }
+
+  const productShouldRender = normalizeValue(netsuiteBcProductId) !== '' || normalizeValue(bcProductId) !== '';
+  if (productShouldRender) {
+    const bcDetail = bcResult ? buildBcDetail({
+      matchState: productMatchState,
+      netsuiteValue: netsuiteBcProductId,
+      bcValue: bcProductId,
+      id: 'bc-product'
+    }) : null;
+    rows.push(renderIdRow('BC Product ID', 'ns-bc-product', netsuiteBcProductId, { matchState: productMatchState, bcDetail }));
+  }
+
+  const variantShouldRender = normalizeValue(netsuiteBcVariantId) !== '' || normalizeValue(bcVariantId) !== '';
+  if (variantShouldRender) {
+    const bcDetail = bcResult ? buildBcDetail({
+      matchState: variantMatchState,
+      netsuiteValue: netsuiteBcVariantId,
+      bcValue: bcVariantId,
+      id: 'bc-variant'
+    }) : null;
+    rows.push(renderIdRow('BC Variant ID', 'ns-bc-variant', netsuiteBcVariantId, { matchState: variantMatchState, bcDetail }));
+  }
+
+  if (rows.length > 0) {
+    nsRoot.innerHTML = rows.join('');
   } else {
     nsRoot.innerHTML = '<div class="placeholder muted">No detected data.</div>';
   }
+
+  const nsValues = [netsuiteSku, netsuiteInternalId, netsuiteBcProductId, netsuiteBcVariantId];
+  const nsHasAny = nsValues.some(value => normalizeValue(value) !== '');
 
   if (nsMeta) {
     if (netsuite?.detectedAt) {
       nsMeta.textContent = `Detected: ${formatTimestamp(netsuite.detectedAt)}`;
     } else if (nsHasAny) {
       nsMeta.textContent = 'Detected recently.';
+    } else if (bcResult) {
+      nsMeta.textContent = 'No NetSuite data detected. Showing BigCommerce lookup for reference.';
     } else {
       nsMeta.textContent = 'Waiting for detected data.';
     }
@@ -156,7 +219,16 @@ function renderIdSummary(){
   }
 
   if (summaryMeta) {
-    if (netsuite?.detectedAt) {
+    if (bcResult) {
+      const hasDifferences = [skuMatchState, productMatchState, variantMatchState].some(state => state === 'mismatch');
+      summaryMeta.textContent = hasDifferences
+        ? (bcResult?.source
+          ? `Differences found · ${bcResult.source}`
+          : 'Differences found in BigCommerce.')
+        : (bcResult?.source
+          ? `All values match · ${bcResult.source}`
+          : 'All values match NetSuite.');
+    } else if (netsuite?.detectedAt) {
       summaryMeta.textContent = `NetSuite detection: ${formatTimestamp(netsuite.detectedAt)}`;
     } else if (nsHasAny) {
       summaryMeta.textContent = 'NetSuite detection available.';
@@ -164,44 +236,6 @@ function renderIdSummary(){
       summaryMeta.textContent = 'Waiting for detected NetSuite data.';
     }
   }
-
-  let bcMetaText = 'Run a lookup to compare.';
-  if (summaryGrid) summaryGrid.classList.remove('has-bc');
-
-  if (bcResult && bcRoot) {
-    const comparisons = [
-      { id: 'product', label: 'BigCommerce value', nsValue: netsuiteBcProductId, bcValue: bcProductId, matchState: productMatchState },
-      { id: 'variant', label: 'BigCommerce variant value', nsValue: netsuiteBcVariantId, bcValue: bcVariantId, matchState: variantMatchState },
-      { id: 'sku', label: 'BigCommerce SKU', nsValue: netsuiteSku, bcValue: bcSku, matchState: skuMatchState }
-    ];
-
-    const rows = [];
-    comparisons.forEach(({ id, label, nsValue, bcValue, matchState }) => {
-      const nsEmpty = normalizeValue(nsValue) === '';
-      const bcEmpty = normalizeValue(bcValue) === '';
-      const shouldShow = matchState === 'mismatch' || (nsEmpty && !bcEmpty);
-      if (shouldShow) {
-        rows.push(renderIdRow(label, `bc-${id}`, bcValue, { copy: true, matchState: 'mismatch' }));
-      }
-    });
-
-    if (rows.length > 0) {
-      bcRoot.innerHTML = rows.join('');
-      if (summaryGrid) summaryGrid.classList.add('has-bc');
-      bcMetaText = bcResult?.source
-        ? `Differences found · ${bcResult.source}`
-        : 'Differences found in BigCommerce.';
-    } else {
-      bcRoot.innerHTML = '<div class="placeholder muted">All values match NetSuite.</div>';
-      bcMetaText = bcResult?.source
-        ? `All values match · ${bcResult.source}`
-        : 'All values match NetSuite.';
-    }
-  } else if (bcRoot) {
-    bcRoot.innerHTML = '<div class="placeholder muted">Run a lookup to compare.</div>';
-  }
-
-  if (bcMeta) bcMeta.textContent = bcMetaText;
 
   attachCopyHandlers(card);
 }
