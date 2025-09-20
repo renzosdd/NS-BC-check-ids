@@ -101,25 +101,39 @@ function renderIdSummary(){
   const card = $('idSummaryCard');
   const nsRoot = $('netsuiteSummary');
   const nsMeta = $('netsuiteMeta');
+  const bcRoot = $('bigcommerceSummary');
+  const bcMeta = $('bigcommerceMeta');
   const header = $('summaryHeader');
   const summaryMeta = $('summaryMeta');
+  const summaryGrid = $('summaryGrid');
 
   if (!card || !nsRoot) return;
 
   const netsuite = latestNetSuitePayload || null;
   const bcResult = lastSearchResult || null;
 
-  const nsHasAny = netsuite && (netsuite.sku || netsuite.internalId || netsuite.bcProductId || netsuite.bcVariantId);
+  const netsuiteSku = netsuite?.sku ?? null;
+  const netsuiteInternalId = netsuite?.internalId ?? null;
+  const netsuiteBcProductId = netsuite?.bcProductId ?? null;
+  const netsuiteBcVariantId = netsuite?.bcVariantId ?? null;
+
+  const bcSku = bcResult?.sku ?? null;
+  const bcProductId = bcResult?.bc_product_id ?? null;
+  const bcVariantId = bcResult?.bc_variant_id ?? null;
+
+  const productMatchState = bcResult ? determineMatchState(netsuiteBcProductId, bcProductId) : null;
+  const variantMatchState = bcResult ? determineMatchState(netsuiteBcVariantId, bcVariantId) : null;
+  const skuMatchState = bcResult ? determineMatchState(netsuiteSku, bcSku) : null;
+
+  const nsValues = netsuite ? [netsuiteSku, netsuiteInternalId, netsuiteBcProductId, netsuiteBcVariantId] : [];
+  const nsHasAny = nsValues.some(value => normalizeValue(value) !== '');
 
   if (nsHasAny) {
-    const { sku=null, internalId=null, bcProductId=null, bcVariantId=null } = netsuite;
-    const productMatchState = bcResult ? determineMatchState(bcProductId, bcResult.bc_product_id) : null;
-    const variantMatchState = bcResult ? determineMatchState(bcVariantId, bcResult.bc_variant_id) : null;
     nsRoot.innerHTML = [
-      renderIdRow('SKU', 'ns-sku', sku),
-      renderIdRow('Internal ID', 'ns-internal', internalId),
-      renderIdRow('BC Product ID', 'ns-bc-product', bcProductId, { matchState: productMatchState }),
-      renderIdRow('BC Variant ID', 'ns-bc-variant', bcVariantId, { matchState: variantMatchState })
+      renderIdRow('SKU', 'ns-sku', netsuiteSku, { matchState: skuMatchState }),
+      renderIdRow('Internal ID', 'ns-internal', netsuiteInternalId),
+      renderIdRow('BC Product ID', 'ns-bc-product', netsuiteBcProductId, { matchState: productMatchState }),
+      renderIdRow('BC Variant ID', 'ns-bc-variant', netsuiteBcVariantId, { matchState: variantMatchState })
     ].join('');
   } else {
     nsRoot.innerHTML = '<div class="placeholder muted">No detected data.</div>';
@@ -150,6 +164,44 @@ function renderIdSummary(){
       summaryMeta.textContent = 'Waiting for detected NetSuite data.';
     }
   }
+
+  let bcMetaText = 'Run a lookup to compare.';
+  if (summaryGrid) summaryGrid.classList.remove('has-bc');
+
+  if (bcResult && bcRoot) {
+    const comparisons = [
+      { id: 'product', label: 'BigCommerce value', nsValue: netsuiteBcProductId, bcValue: bcProductId, matchState: productMatchState },
+      { id: 'variant', label: 'BigCommerce variant value', nsValue: netsuiteBcVariantId, bcValue: bcVariantId, matchState: variantMatchState },
+      { id: 'sku', label: 'BigCommerce SKU', nsValue: netsuiteSku, bcValue: bcSku, matchState: skuMatchState }
+    ];
+
+    const rows = [];
+    comparisons.forEach(({ id, label, nsValue, bcValue, matchState }) => {
+      const nsEmpty = normalizeValue(nsValue) === '';
+      const bcEmpty = normalizeValue(bcValue) === '';
+      const shouldShow = matchState === 'mismatch' || (nsEmpty && !bcEmpty);
+      if (shouldShow) {
+        rows.push(renderIdRow(label, `bc-${id}`, bcValue, { copy: true, matchState: 'mismatch' }));
+      }
+    });
+
+    if (rows.length > 0) {
+      bcRoot.innerHTML = rows.join('');
+      if (summaryGrid) summaryGrid.classList.add('has-bc');
+      bcMetaText = bcResult?.source
+        ? `Differences found · ${bcResult.source}`
+        : 'Differences found in BigCommerce.';
+    } else {
+      bcRoot.innerHTML = '<div class="placeholder muted">All values match NetSuite.</div>';
+      bcMetaText = bcResult?.source
+        ? `All values match · ${bcResult.source}`
+        : 'All values match NetSuite.';
+    }
+  } else if (bcRoot) {
+    bcRoot.innerHTML = '<div class="placeholder muted">Run a lookup to compare.</div>';
+  }
+
+  if (bcMeta) bcMeta.textContent = bcMetaText;
 
   attachCopyHandlers(card);
 }
