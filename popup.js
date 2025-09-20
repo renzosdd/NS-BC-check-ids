@@ -82,6 +82,17 @@ function normalizeValue(value) {
   return String(value);
 }
 
+const NETSUITE_PAYLOAD_KEYS = ['sku', 'internalId', 'bcProductId', 'bcVariantId'];
+
+function getComparablePayloadValue(payload, key) {
+  if (!payload || typeof payload !== 'object') return '';
+  return normalizeValue(payload[key]);
+}
+
+function payloadsAreEqual(a, b) {
+  return NETSUITE_PAYLOAD_KEYS.every((key) => getComparablePayloadValue(a, key) === getComparablePayloadValue(b, key));
+}
+
 function renderIdRow(label, id, value, options = {}) {
   const { copy = false, highlight = false, matchState = null } = options;
   const normalized = normalizeValue(value);
@@ -278,7 +289,12 @@ function applyLookupStatusFromSummary(summary) {
 
 
 function renderNetSuite(payload){
-  latestNetSuitePayload = payload || null;
+  const nextPayload = payload || null;
+  const payloadChanged = !payloadsAreEqual(latestNetSuitePayload, nextPayload);
+  latestNetSuitePayload = nextPayload;
+  if (payloadChanged && lastSearchResult) {
+    lastSearchResult = null;
+  }
   renderIdSummary();
 }
 
