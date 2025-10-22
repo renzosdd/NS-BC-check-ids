@@ -95,93 +95,6 @@ function normalizeValue(value) {
   return String(value);
 }
 
-function pickFirstNonEmpty(...values) {
-  for (const value of values) {
-    const normalized = normalizeValue(value);
-    if (normalized !== '') return normalized;
-  }
-  return '';
-}
-
-function normalizeLookupResult(rawResult) {
-  if (!rawResult || typeof rawResult !== 'object') return null;
-
-  const hasRecordType = typeof rawResult.recordType === 'string';
-  const type = hasRecordType ? rawResult.recordType.toLowerCase() : null;
-  const source = hasRecordType ? (rawResult.source || null) : (rawResult.source || rawResult.sourceType || null);
-
-  if (type === 'item') {
-    const data = rawResult.data && typeof rawResult.data === 'object' ? rawResult.data : rawResult;
-    return {
-      recordType: 'item',
-      source,
-      data: {
-        sku: data.sku ?? data.bcSku ?? null,
-        bcProductId: data.bcProductId ?? data.productId ?? data.bc_product_id ?? null,
-        bcVariantId: data.bcVariantId ?? data.variantId ?? data.bc_variant_id ?? null,
-        productName: data.productName ?? data.name ?? null,
-      },
-    };
-  }
-
-  if (type === 'order') {
-    const data = rawResult.data && typeof rawResult.data === 'object' ? rawResult.data : rawResult;
-    return {
-      recordType: 'order',
-      source,
-      data: {
-        bcOrderId: data.bcOrderId ?? data.id ?? data.orderId ?? null,
-        orderNumber: data.orderNumber ?? data.number ?? null,
-        status: data.status ?? null,
-        statusId: data.statusId ?? data.status_id ?? null,
-        reference: data.reference ?? null,
-        email: data.email ?? data.customerEmail ?? null,
-        customerId: data.customerId ?? data.customer_id ?? null,
-        totalIncTax: data.totalIncTax ?? data.total_inc_tax ?? null,
-        totalExTax: data.totalExTax ?? data.total_ex_tax ?? null,
-        currencyCode: data.currencyCode ?? data.currency_code ?? null,
-        dateCreated: data.dateCreated ?? data.date_created ?? null,
-        dateModified: data.dateModified ?? data.date_modified ?? null,
-      },
-    };
-  }
-
-  if (type === 'customer') {
-    const data = rawResult.data && typeof rawResult.data === 'object' ? rawResult.data : rawResult;
-    return {
-      recordType: 'customer',
-      source,
-      data: {
-        bcCustomerId: data.bcCustomerId ?? data.id ?? null,
-        email: data.email ?? null,
-        firstName: data.firstName ?? data.first_name ?? null,
-        lastName: data.lastName ?? data.last_name ?? null,
-        company: data.company ?? null,
-        phone: data.phone ?? null,
-        customerGroupId: data.customerGroupId ?? data.customer_group_id ?? null,
-        notes: data.notes ?? null,
-        dateCreated: data.dateCreated ?? data.date_created ?? null,
-        dateModified: data.dateModified ?? data.date_modified ?? null,
-      },
-    };
-  }
-
-  if ('sku' in rawResult || 'bc_product_id' in rawResult || 'bc_variant_id' in rawResult) {
-    return {
-      recordType: 'item',
-      source: rawResult.source || null,
-      data: {
-        sku: rawResult.sku ?? null,
-        bcProductId: rawResult.bc_product_id ?? null,
-        bcVariantId: rawResult.bc_variant_id ?? null,
-        productName: rawResult.name ?? null,
-      },
-    };
-  }
-
-  return null;
-}
-
 const ITEM_PAYLOAD_KEYS = ['sku', 'internalId', 'bcProductId', 'bcVariantId'];
 const ORDER_PAYLOAD_KEYS = ['tranId', 'internalId', 'bcOrderId'];
 const CUSTOMER_PAYLOAD_KEYS = ['entityId', 'email', 'internalId', 'bcCustomerId'];
@@ -313,18 +226,6 @@ function renderIdRow(label, id, value, options = {}) {
   `;
 }
 
-function renderBcDetailsSection(title, rows) {
-  if (!rows || rows.length === 0) return '';
-  return `
-    <div class="bc-details">
-      <div class="bc-details-title">${escapeHtml(title)}</div>
-      <div class="bc-details-list">
-        ${rows.join('')}
-      </div>
-    </div>
-  `;
-}
-
 function toggleSummarySection(id, show) {
   const el = $(id);
   if (!el) return;
@@ -363,8 +264,7 @@ function renderItemSummary(itemData) {
   const summaryMeta = $('summaryMeta');
 
   const comparisonSummary = createEmptyComparisonSummary();
-  const bcResult = (lastSearchResult && lastSearchResult.recordType === 'item') ? lastSearchResult : null;
-  const bcData = bcResult?.data || null;
+  const bcResult = lastSearchResult || null;
 
   const netsuiteSku = itemData?.sku ?? null;
   const netsuiteInternalId = itemData?.internalId ?? null;
@@ -461,73 +361,26 @@ function renderOrderSummary(orderData) {
   const hasAny = values.some((value) => normalizeValue(value) !== '');
   summary.hasNetSuite = hasAny;
 
-  const bcResult = (lastSearchResult && lastSearchResult.recordType === 'order') ? lastSearchResult : null;
-  const bcData = bcResult?.data || null;
-  const lookupBcOrderId = bcData?.bcOrderId ?? null;
-  const lookupOrderNumber = bcData?.orderNumber ?? null;
-  const lookupReference = bcData?.reference ?? null;
-  const lookupStatus = bcData?.status ?? null;
-  const lookupEmail = bcData?.email ?? null;
-  const lookupCustomerId = bcData?.customerId ?? null;
-  const lookupTotal = bcData?.totalIncTax ?? null;
-  const lookupCurrency = bcData?.currencyCode ?? null;
-  const lookupCreated = bcData?.dateCreated ?? null;
-  const lookupModified = bcData?.dateModified ?? null;
-
-  const orderNumberMatchState = bcResult ? determineMatchState(netsuiteTranId, lookupOrderNumber) : null;
-  const bcOrderIdMatchState = bcResult ? determineMatchState(bcOrderId, lookupBcOrderId) : null;
-
   if (root) {
     if (hasAny) {
       const rows = [
-        renderNetSuiteRow('Order Number', 'order-tranid', netsuiteTranId, lookupOrderNumber, orderNumberMatchState, { copy: true }),
-        renderNetSuiteRow('Internal ID', 'order-internal', netsuiteInternalId, null, null),
-        renderNetSuiteRow('BC Order ID', 'order-bc-id', bcOrderId, lookupBcOrderId, bcOrderIdMatchState, { copy: true }),
+        renderIdRow('Order Number', 'order-tranid', netsuiteTranId, { copy: true }),
+        renderIdRow('Internal ID', 'order-internal', netsuiteInternalId),
+        renderIdRow('BC Order ID', 'order-bc-id', bcOrderId, { copy: true }),
       ];
-      const bcRows = [];
-      if (bcData) {
-        bcRows.push(renderIdRow('Order ID', 'bc-order-id-result', lookupBcOrderId, { copy: true, highlight: true }));
-        bcRows.push(renderIdRow('Order Number', 'bc-order-number-result', lookupOrderNumber, { copy: true, highlight: true }));
-        if (lookupReference) bcRows.push(renderIdRow('Reference', 'bc-order-reference', lookupReference, { highlight: true }));
-        if (lookupStatus) bcRows.push(renderIdRow('Status', 'bc-order-status', lookupStatus, { highlight: true }));
-        if (lookupEmail) bcRows.push(renderIdRow('Customer Email', 'bc-order-email', lookupEmail, { highlight: true }));
-        if (lookupCustomerId) bcRows.push(renderIdRow('Customer ID', 'bc-order-customer-id', lookupCustomerId, { highlight: true }));
-        if (lookupTotal !== null && lookupTotal !== undefined && normalizeValue(lookupTotal) !== '') {
-          const totalDisplay = lookupCurrency ? `${normalizeValue(lookupTotal)} ${normalizeValue(lookupCurrency)}` : normalizeValue(lookupTotal);
-          bcRows.push(renderIdRow('Total (inc tax)', 'bc-order-total', totalDisplay, { highlight: true }));
-        }
-        if (lookupCreated) bcRows.push(renderIdRow('Date Created', 'bc-order-created', lookupCreated, { highlight: true }));
-        if (lookupModified) bcRows.push(renderIdRow('Date Modified', 'bc-order-modified', lookupModified, { highlight: true }));
-      }
-      const bcSection = bcRows.length > 0 ? renderBcDetailsSection('BigCommerce', bcRows) : '';
-      root.innerHTML = rows.join('') + bcSection;
+      root.innerHTML = rows.join('');
     } else {
       root.innerHTML = '<div class="placeholder muted">No detected order data.</div>';
     }
   }
 
   if (meta) {
-    if (bcData) {
-      const parts = [hasAny ? 'NetSuite order data detected.' : 'No NetSuite order data detected.', 'BigCommerce order located.'];
-      if (bcResult?.source) parts.push(bcResult.source);
-      meta.textContent = parts.join(' ');
-    } else {
-      meta.textContent = hasAny ? 'NetSuite order data detected.' : 'Waiting for detected data.';
-    }
+    meta.textContent = hasAny ? 'NetSuite order data detected.' : 'Waiting for detected data.';
   }
 
-  const summaryMetaText = bcData
-    ? `BigCommerce order located. Details listed below.${bcResult?.source ? ` · ${bcResult.source}` : ''}`
-    : hasAny
-      ? 'Review detected NetSuite order identifiers.'
-      : 'Waiting for detected order data.';
-
-  summary.hasBcResult = !!bcData;
-  summary.hasComparableValues = !!bcData && ([netsuiteTranId, bcOrderId].some((value) => normalizeValue(value) !== ''));
-  summary.hasDifferences = !!bcData && [orderNumberMatchState, bcOrderIdMatchState].some((state) => state === 'mismatch');
-  if (summary.hasBcResult) {
-    summary.allMatch = summary.hasComparableValues && !summary.hasDifferences;
-  }
+  const summaryMetaText = hasAny
+    ? 'Review detected NetSuite order identifiers.'
+    : 'Waiting for detected order data.';
 
   return { comparisonSummary: summary, summaryMetaText };
 }
@@ -545,74 +398,27 @@ function renderCustomerSummary(customerData) {
   const hasAny = values.some((value) => normalizeValue(value) !== '');
   summary.hasNetSuite = hasAny;
 
-  const bcResult = (lastSearchResult && lastSearchResult.recordType === 'customer') ? lastSearchResult : null;
-  const bcData = bcResult?.data || null;
-  const lookupCustomerId = bcData?.bcCustomerId ?? null;
-  const lookupEmail = bcData?.email ?? null;
-  const lookupFirstName = bcData?.firstName ?? null;
-  const lookupLastName = bcData?.lastName ?? null;
-  const lookupCompany = bcData?.company ?? null;
-  const lookupPhone = bcData?.phone ?? null;
-  const lookupGroupId = bcData?.customerGroupId ?? null;
-  const lookupNotes = bcData?.notes ?? null;
-  const lookupCreated = bcData?.dateCreated ?? null;
-  const lookupModified = bcData?.dateModified ?? null;
-
-  const emailMatchState = bcResult ? determineMatchState(netsuiteEmail, lookupEmail) : null;
-  const idMatchState = bcResult ? determineMatchState(bcCustomerId, lookupCustomerId) : null;
-
   if (root) {
     if (hasAny) {
       const rows = [
         renderIdRow('Customer', 'customer-entity', netsuiteEntityId),
-        renderNetSuiteRow('Email', 'customer-email', netsuiteEmail, lookupEmail, emailMatchState),
+        renderIdRow('Email', 'customer-email', netsuiteEmail),
         renderIdRow('Internal ID', 'customer-internal', netsuiteInternalId),
-        renderNetSuiteRow('BC Customer ID', 'customer-bc-id', bcCustomerId, lookupCustomerId, idMatchState, { copy: true }),
+        renderIdRow('BC Customer ID', 'customer-bc-id', bcCustomerId, { copy: true }),
       ];
-      const bcRows = [];
-      if (bcData) {
-        bcRows.push(renderIdRow('Customer ID', 'bc-customer-id-result', lookupCustomerId, { copy: true, highlight: true }));
-        bcRows.push(renderIdRow('Email', 'bc-customer-email', lookupEmail, { highlight: true }));
-        if (lookupFirstName || lookupLastName) {
-          const fullName = [lookupFirstName, lookupLastName].map((part) => normalizeValue(part)).filter(Boolean).join(' ');
-          bcRows.push(renderIdRow('Name', 'bc-customer-name', fullName || pickFirstNonEmpty(lookupFirstName, lookupLastName), { highlight: true }));
-        }
-        if (lookupCompany) bcRows.push(renderIdRow('Company', 'bc-customer-company', lookupCompany, { highlight: true }));
-        if (lookupPhone) bcRows.push(renderIdRow('Phone', 'bc-customer-phone', lookupPhone, { highlight: true }));
-        if (lookupGroupId) bcRows.push(renderIdRow('Customer Group', 'bc-customer-group', lookupGroupId, { highlight: true }));
-        if (lookupNotes) bcRows.push(renderIdRow('Notes', 'bc-customer-notes', lookupNotes, { highlight: true }));
-        if (lookupCreated) bcRows.push(renderIdRow('Date Created', 'bc-customer-created', lookupCreated, { highlight: true }));
-        if (lookupModified) bcRows.push(renderIdRow('Date Modified', 'bc-customer-modified', lookupModified, { highlight: true }));
-      }
-      const bcSection = bcRows.length > 0 ? renderBcDetailsSection('BigCommerce', bcRows) : '';
-      root.innerHTML = rows.join('') + bcSection;
+      root.innerHTML = rows.join('');
     } else {
       root.innerHTML = '<div class="placeholder muted">No detected customer data.</div>';
     }
   }
 
   if (meta) {
-    if (bcData) {
-      const parts = [hasAny ? 'NetSuite customer data detected.' : 'No NetSuite customer data detected.', 'BigCommerce customer located.'];
-      if (bcResult?.source) parts.push(bcResult.source);
-      meta.textContent = parts.join(' ');
-    } else {
-      meta.textContent = hasAny ? 'NetSuite customer data detected.' : 'Waiting for detected data.';
-    }
+    meta.textContent = hasAny ? 'NetSuite customer data detected.' : 'Waiting for detected data.';
   }
 
-  const summaryMetaText = bcData
-    ? `BigCommerce customer located. Details listed below.${bcResult?.source ? ` · ${bcResult.source}` : ''}`
-    : hasAny
-      ? 'Review detected NetSuite customer identifiers.'
-      : 'Waiting for detected customer data.';
-
-  summary.hasBcResult = !!bcData;
-  summary.hasComparableValues = !!bcData && ([netsuiteEmail, bcCustomerId].some((value) => normalizeValue(value) !== ''));
-  summary.hasDifferences = !!bcData && [emailMatchState, idMatchState].some((state) => state === 'mismatch');
-  if (summary.hasBcResult) {
-    summary.allMatch = summary.hasComparableValues && !summary.hasDifferences;
-  }
+  const summaryMetaText = hasAny
+    ? 'Review detected NetSuite customer identifiers.'
+    : 'Waiting for detected customer data.';
 
   return { comparisonSummary: summary, summaryMetaText };
 }
@@ -868,6 +674,9 @@ async function performCustomerLookup() {
 
 function getLookupStatusFromSummary(summary) {
   const detectionType = latestNetSuitePayload?.type || null;
+  if (detectionType && detectionType !== 'item') {
+    return { message: 'Lookup completed.', tone: null };
+  }
   const effectiveSummary = (summary && typeof summary === 'object') ? summary : lastComparisonSummary;
   if (!effectiveSummary || typeof effectiveSummary !== 'object') {
     return { message: 'Lookup completed.', tone: null };
@@ -979,7 +788,9 @@ async function applyDetectedFromPage(context='load'){
     renderNetSuite(payload);
     const detectionType = payload?.type || null;
     const detectionData = payload?.data || null;
-    setLookupInputFromDetection(payload, { force: context === 'use' });
+    if (detectionType === 'item' && detectionData?.sku) {
+      $('sku').value = detectionData.sku;
+    }
     const hasAny = detectionHasData(payload);
     if (context === 'load') {
       if (detectionType === 'item') {
