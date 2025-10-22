@@ -79,13 +79,31 @@
     </div>
     <div class="card-body">
       <div class="summary-grid" id="summaryGrid">
-        <div class="summary-column" id="netsuiteColumn">
+        <div class="summary-column" id="itemSummarySection">
           <div class="column-header">
-            <div class="column-title">NetSuite</div>
-            <div class="column-meta" id="netsuiteMeta">Waiting for detected data.</div>
+            <div class="column-title">Item</div>
+            <div class="column-meta" id="itemMeta">Waiting for detected data.</div>
           </div>
-          <div class="id-list" id="netsuiteSummary">
+          <div class="id-list" id="itemSummary">
             <div class="placeholder muted">No detected data.</div>
+          </div>
+        </div>
+        <div class="summary-column hidden" id="orderSummarySection">
+          <div class="column-header">
+            <div class="column-title">Order</div>
+            <div class="column-meta" id="orderMeta">Waiting for detected data.</div>
+          </div>
+          <div class="id-list" id="orderSummary">
+            <div class="placeholder muted">No detected order data.</div>
+          </div>
+        </div>
+        <div class="summary-column hidden" id="customerSummarySection">
+          <div class="column-header">
+            <div class="column-title">Customer</div>
+            <div class="column-meta" id="customerMeta">Waiting for detected data.</div>
+          </div>
+          <div class="id-list" id="customerSummary">
+            <div class="placeholder muted">No detected customer data.</div>
           </div>
         </div>
       </div>
