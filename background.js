@@ -15,6 +15,17 @@ const BADGE_COLORS = {
 
 function getDetectedSkuCount(payload) {
   if (!payload) return 0;
+  const type = payload.type || null;
+  if (type === "item" && payload.data) {
+    const data = payload.data || {};
+    if (typeof data.detectedSkuCount === "number" && !Number.isNaN(data.detectedSkuCount)) {
+      return Math.max(0, Math.floor(data.detectedSkuCount));
+    }
+    if (Array.isArray(data.skuCandidates)) {
+      return data.skuCandidates.filter(Boolean).length;
+    }
+    return data.sku ? 1 : 0;
+  }
   if (typeof payload.detectedSkuCount === "number" && !Number.isNaN(payload.detectedSkuCount)) {
     return Math.max(0, Math.floor(payload.detectedSkuCount));
   }

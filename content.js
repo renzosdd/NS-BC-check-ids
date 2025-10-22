@@ -55,6 +55,32 @@ function collectSkuDetection(){
   }
   return { sku, skuCandidates: ordered };
 }
+function fieldExists(field){
+  const selectors = new Set([
+    `[name="${field}"]`,
+    `[id="${field}"]`,
+    `[name$=".${field}"]`,
+    `[id$="${field}"]`,
+    `[data-fieldid="${field}"]`,
+    `[data-fieldid="${field}"] input`,
+    `[data-fieldid="${field}"] span`,
+    `input[name="${field}"]`,
+    `input[id="${field}"]`,
+    `input[name$=".${field}"]`,
+    `input[id$="${field}"]`,
+    `span[name="${field}"]`,
+    `span[id="${field}"]`,
+    `span[id^="${field}_"][id$="_val"]`,
+    `div[id^="${field}_"][id$="_val"]`,
+  ]);
+  for (const sel of selectors) {
+    if (document.querySelector(sel)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function getFieldCandidates(field){
   const names=[field,`${field}_display`];
   const selectors=new Set();
@@ -168,7 +194,25 @@ function getFieldCandidates(field){
   return Array.from(vals);
 }
 function pickFieldValue(field){ const vals=getFieldCandidates(field); return vals.length?vals[0]:null; }
-function gatherBasePayload(){
+
+function detectRecordType(){
+  try{
+    if(fieldExists("custbody_tt_bc_order_id")) return "order";
+    if(fieldExists("custentity_tt_bc_cust_id")) return "customer";
+  }catch(e){
+    // ignore detection errors
+  }
+  let href="";
+  try{
+    href=(window.location&&window.location.href)||"";
+  }catch(e){ href=""; }
+  const lowerHref=(href||"").toLowerCase();
+  if(/recordtype=salesorder|salesord\.nl|\/app\/accounting\/transactions\//.test(lowerHref)) return "order";
+  if(/recordtype=customer|entity\.nl|\/app\/common\/entity\//.test(lowerHref)) return "customer";
+  return "item";
+}
+
+function gatherItemPayload(){
   const { sku, skuCandidates } = collectSkuDetection();
   const internalId=pickFieldValue("id");
   const bcProductId=pickFieldValue("custitem_tt_bc_product_id");
@@ -182,6 +226,43 @@ function gatherBasePayload(){
     bcVariantId: bcVariantId||null
   };
 }
+
+function gatherOrderPayload(){
+  const internalId=pickFieldValue("id");
+  const tranId=pickFieldValue("tranid");
+  const bcOrderId=pickFieldValue("custbody_tt_bc_order_id");
+  return {
+    internalId: internalId||null,
+    tranId: tranId||null,
+    bcOrderId: bcOrderId||null
+  };
+}
+
+function gatherCustomerPayload(){
+  const internalId=pickFieldValue("id");
+  const entityId=pickFieldValue("entityid");
+  const email=pickFieldValue("email");
+  const bcCustomerId=pickFieldValue("custentity_tt_bc_cust_id");
+  return {
+    internalId: internalId||null,
+    entityId: entityId||null,
+    email: email||null,
+    bcCustomerId: bcCustomerId||null
+  };
+}
+
+function gatherBasePayload(){
+  const type=detectRecordType();
+  let data=null;
+  if(type==="order"){
+    data=gatherOrderPayload();
+  }else if(type==="customer"){
+    data=gatherCustomerPayload();
+  }else{
+    data=gatherItemPayload();
+  }
+  return { type, data };
+}
 function arraysEqual(a,b){
   const arrA=Array.isArray(a)?a:[];
   const arrB=Array.isArray(b)?b:[];
@@ -191,7 +272,7 @@ function arraysEqual(a,b){
   }
   return true;
 }
-function baseEquals(a,b){
+function itemDataEquals(a,b){
   if(!a&&!b) return true;
   if(!a||!b) return false;
   return (a.sku||null)===(b.sku||null)
@@ -201,6 +282,50 @@ function baseEquals(a,b){
     && (a.detectedSkuCount||0)===(b.detectedSkuCount||0)
     && arraysEqual(a.skuCandidates,b.skuCandidates);
 }
+
+function orderDataEquals(a,b){
+  if(!a&&!b) return true;
+  if(!a||!b) return false;
+  return (a.internalId||null)===(b.internalId||null)
+    && (a.tranId||null)===(b.tranId||null)
+    && (a.bcOrderId||null)===(b.bcOrderId||null);
+}
+
+function customerDataEquals(a,b){
+  if(!a&&!b) return true;
+  if(!a||!b) return false;
+  return (a.internalId||null)===(b.internalId||null)
+    && (a.entityId||null)===(b.entityId||null)
+    && (a.email||null)===(b.email||null)
+    && (a.bcCustomerId||null)===(b.bcCustomerId||null);
+}
+
+function payloadEquals(a,b){
+  if(!a&&!b) return true;
+  if(!a||!b) return false;
+  const typeA=a?.type||null;
+  const typeB=b?.type||null;
+  if(typeA!==typeB) return false;
+  const dataA=a?.data||null;
+  const dataB=b?.data||null;
+  if(typeA==="order") return orderDataEquals(dataA,dataB);
+  if(typeA==="customer") return customerDataEquals(dataA,dataB);
+  return itemDataEquals(dataA,dataB);
+}
+
+function hasDetectionData(payload){
+  if(!payload) return false;
+  const { type, data } = payload;
+  if(!data) return false;
+  if(type==="order"){
+    return !!(data.internalId||data.tranId||data.bcOrderId);
+  }
+  if(type==="customer"){
+    return !!(data.internalId||data.entityId||data.email||data.bcCustomerId);
+  }
+  return !!(data.sku||data.internalId||data.bcProductId||data.bcVariantId||data.detectedSkuCount);
+}
+
 let lastDetectedPayload=null;
 function notifyDetection(payload){
   try{
@@ -212,8 +337,8 @@ function notifyDetection(payload){
   }
 }
 function updateDetectedPayload(){
-  const base=gatherBasePayload();
-  const hasAny=!!(base.sku||base.internalId||base.bcProductId||base.bcVariantId||base.detectedSkuCount);
+  const detection=gatherBasePayload();
+  const hasAny=hasDetectionData(detection);
   if(!hasAny){
     if(lastDetectedPayload!==null){
       lastDetectedPayload=null;
@@ -221,16 +346,11 @@ function updateDetectedPayload(){
     }
     return;
   }
-  const prevBase=lastDetectedPayload?{
-    sku:lastDetectedPayload.sku||null,
-    internalId:lastDetectedPayload.internalId||null,
-    bcProductId:lastDetectedPayload.bcProductId||null,
-    bcVariantId:lastDetectedPayload.bcVariantId||null,
-    detectedSkuCount:lastDetectedPayload.detectedSkuCount||0,
-    skuCandidates:Array.isArray(lastDetectedPayload.skuCandidates)?lastDetectedPayload.skuCandidates.slice():[]
-  }:null;
-  if(!baseEquals(base,prevBase)){
-    lastDetectedPayload={...base};
+  if(!payloadEquals(detection,lastDetectedPayload)){
+    lastDetectedPayload={ type:detection.type, data:{...detection.data} };
+    if(Array.isArray(detection.data?.skuCandidates)){
+      lastDetectedPayload.data.skuCandidates=detection.data.skuCandidates.slice();
+    }
     notifyDetection(lastDetectedPayload);
   }
 }
@@ -241,7 +361,7 @@ updateDetectedPayload();
 chrome.runtime.onMessage.addListener((msg,sender,sendResponse)=>{
   if(msg?.type==="get-sku"){
     updateDetectedPayload();
-    const sku=lastDetectedPayload?lastDetectedPayload.sku||null:null;
+    const sku=lastDetectedPayload&&lastDetectedPayload.type==="item"?lastDetectedPayload.data?.sku||null:null;
     sendResponse({sku,payload:lastDetectedPayload});
   } else if(msg?.type==="get-detected-payload"){
     updateDetectedPayload();
