@@ -142,25 +142,29 @@ function normalizeLookupRequest(raw) {
   return request;
 }
 
-function normalizeItemResult({ source, sku, productId, variantId, productName }) {
+function normalizeItemResult({ source, sku, productId, variantId, productName, raw, request }) {
   return {
     recordType: "item",
     source: source || null,
+    request: request || null,
     data: {
       sku: sku ?? null,
       bcProductId: productId ?? null,
       bcVariantId: variantId ?? null,
       productName: productName ?? null,
     },
+    raw: raw ?? null,
   };
 }
 
-function normalizeOrderResult({ source, order }) {
+function normalizeOrderResult({ source, order, request }) {
   if (!order || typeof order !== "object") {
     return {
       recordType: "order",
       source: source || null,
+      request: request || null,
       data: null,
+      raw: null,
     };
   }
   const billing = order.billing_address || {};
@@ -181,16 +185,20 @@ function normalizeOrderResult({ source, order }) {
   return {
     recordType: "order",
     source: source || null,
+    request: request || null,
     data: normalized,
+    raw: order,
   };
 }
 
-function normalizeCustomerResult({ source, customer }) {
+function normalizeCustomerResult({ source, customer, request }) {
   if (!customer || typeof customer !== "object") {
     return {
       recordType: "customer",
       source: source || null,
+      request: request || null,
       data: null,
+      raw: null,
     };
   }
   const normalized = {
@@ -208,7 +216,9 @@ function normalizeCustomerResult({ source, customer }) {
   return {
     recordType: "customer",
     source: source || null,
+    request: request || null,
     data: normalized,
+    raw: customer,
   };
 }
 
@@ -243,6 +253,8 @@ async function bcLookupItem(cfg, request) {
         productId: v.product_id,
         variantId: v.id,
         productName: v.product?.name,
+        raw: v,
+        request: { sku },
       });
     }
   }
@@ -261,6 +273,8 @@ async function bcLookupItem(cfg, request) {
         productId: p.id,
         variantId: v ? v.id : null,
         productName: p.name,
+        raw: { product: p, variant: v || null },
+        request: { sku },
       });
     }
   }
@@ -273,6 +287,7 @@ async function bcLookupOrder(cfg, request) {
   const headers = authHeaders(cfg);
   const idCandidates = uniqueStrings(request.bcOrderId ?? null, ...(Array.isArray(request.bcOrderIds) ? request.bcOrderIds : []));
   const numberCandidates = uniqueStrings(...(Array.isArray(request.orderNumbers) ? request.orderNumbers : []));
+  const requestDetails = { bcOrderIds: idCandidates.slice(), orderNumbers: numberCandidates.slice() };
 
   const numericIds = [];
   const otherNumbers = [...numberCandidates];
@@ -295,7 +310,7 @@ async function bcLookupOrder(cfg, request) {
     if (!r.ok) { const t = await r.text(); throw new Error(`Error fetching order ${id}: ${r.status} ${t}`); }
     const order = await r.json();
     if (order && typeof order === "object") {
-      return normalizeOrderResult({ source: `orders/${id}`, order });
+      return normalizeOrderResult({ source: `orders/${id}`, order, request: requestDetails });
     }
   }
 
@@ -313,7 +328,7 @@ async function bcLookupOrder(cfg, request) {
     if (Array.isArray(orders) && orders.length > 0) {
       const order = orders[0];
       if (order && typeof order === "object") {
-        return normalizeOrderResult({ source: `orders?reference=${number}`, order });
+        return normalizeOrderResult({ source: `orders?reference=${number}`, order, request: requestDetails });
       }
     }
   }
@@ -326,6 +341,7 @@ async function bcLookupCustomer(cfg, request) {
   const headers = authHeaders(cfg);
   const idCandidates = uniqueStrings(request.bcCustomerId ?? null, ...(Array.isArray(request.customerIds) ? request.customerIds : []));
   const emailCandidates = uniqueStrings(request.email ?? null, ...(Array.isArray(request.emails) ? request.emails : []));
+  const requestDetails = { customerIds: idCandidates.slice(), emails: emailCandidates.slice() };
 
   for (const id of idCandidates) {
     const url = `${baseV3}/customers?id:in=${encodeURIComponent(id)}&limit=1`;
@@ -334,7 +350,7 @@ async function bcLookupCustomer(cfg, request) {
     const j = await r.json();
     const customer = (j.data || []).find(entry => String(entry.id) === String(id));
     if (customer) {
-      return normalizeCustomerResult({ source: `customers?id:in=${id}`, customer });
+      return normalizeCustomerResult({ source: `customers?id:in=${id}`, customer, request: requestDetails });
     }
   }
 
@@ -347,7 +363,7 @@ async function bcLookupCustomer(cfg, request) {
     const lower = email.toLowerCase();
     const customer = (j.data || []).find(entry => (entry.email || "").toLowerCase() === lower);
     if (customer) {
-      return normalizeCustomerResult({ source: `customers?email:in=${email}`, customer });
+      return normalizeCustomerResult({ source: `customers?email:in=${email}`, customer, request: requestDetails });
     }
   }
 
