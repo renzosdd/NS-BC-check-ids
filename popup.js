@@ -11,6 +11,7 @@ function createEmptyComparisonSummary() {
 }
 
 let latestNetSuitePayload = null;
+let lastDetectionType = null;
 let lastSearchResult = null;
 let lastComparisonSummary = createEmptyComparisonSummary();
 
@@ -39,6 +40,14 @@ function setStatus(msg, ok=null){
         : 'muted';
   el.textContent = msg || '';
   el.className = `status ${statusClass}`;
+}
+
+function handleLookupError(errorMessage) {
+  const message = (typeof errorMessage === 'string' && errorMessage.trim() !== '') ? errorMessage : 'Error';
+  setStatus(message, false);
+  if (/LOCKED/.test(message)) {
+    setStatus('Locked 🔒 — use "Unlock" or Options to unlock.', false);
+  }
 }
 
 function toast(msg){
@@ -262,9 +271,9 @@ function renderItemSummary(itemData) {
   const netsuiteBcProductId = itemData?.bcProductId ?? null;
   const netsuiteBcVariantId = itemData?.bcVariantId ?? null;
 
-  const bcSku = bcResult?.sku ?? null;
-  const bcProductId = bcResult?.bc_product_id ?? null;
-  const bcVariantId = bcResult?.bc_variant_id ?? null;
+  const bcSku = bcData?.sku ?? null;
+  const bcProductId = bcData?.bcProductId ?? null;
+  const bcVariantId = bcData?.bcVariantId ?? null;
 
   const productMatchState = bcResult ? determineMatchState(netsuiteBcProductId, bcProductId) : null;
   const variantMatchState = bcResult ? determineMatchState(netsuiteBcVariantId, bcVariantId) : null;
@@ -459,9 +468,208 @@ function renderIdSummary(){
 
 function renderBCCard(result){
   if (arguments.length > 0) {
-    lastSearchResult = (result && typeof result === 'object' && !result.error) ? result : null;
+    lastSearchResult = (result && typeof result === 'object' && !result.error)
+      ? normalizeLookupResult(result)
+      : null;
   }
   return renderIdSummary();
+}
+
+function updateLookupControls() {
+  const detectionType = latestNetSuitePayload?.type || 'item';
+  const input = $('sku');
+  const lookupBtn = $('lookup');
+  if (input) {
+    if (detectionType === 'order') {
+      input.placeholder = 'BigCommerce order ID or number...';
+    } else if (detectionType === 'customer') {
+      input.placeholder = 'Customer email or BigCommerce ID...';
+    } else {
+      input.placeholder = 'SKU...';
+    }
+  }
+  if (lookupBtn) {
+    if (detectionType === 'order') {
+      lookupBtn.textContent = 'Look up order';
+    } else if (detectionType === 'customer') {
+      lookupBtn.textContent = 'Look up customer';
+    } else {
+      lookupBtn.textContent = 'Look up';
+    }
+  }
+}
+
+function setLookupInputFromDetection(payload, { force = false } = {}) {
+  const input = $('sku');
+  if (!input) return;
+  const existing = normalizeValue(input.value);
+  if (!force && existing !== '') return;
+  const detectionType = payload?.type || 'item';
+  const data = payload?.data || null;
+  let nextValue = '';
+  if (detectionType === 'order') {
+    nextValue = pickFirstNonEmpty(data?.bcOrderId, data?.tranId, data?.internalId);
+  } else if (detectionType === 'customer') {
+    nextValue = pickFirstNonEmpty(data?.email, data?.bcCustomerId, data?.entityId);
+  } else {
+    nextValue = pickFirstNonEmpty(data?.sku, data?.internalId);
+  }
+  input.value = nextValue;
+}
+
+function collectOrderLookupCriteria() {
+  const criteria = { bcOrderIds: [], orderNumbers: [] };
+  const detectionData = latestNetSuitePayload?.data || null;
+  const inputValue = normalizeValue($('sku')?.value ?? '');
+  const idSet = new Set();
+  const numberSet = new Set();
+
+  const addId = (value) => {
+    const normalized = normalizeValue(value);
+    if (!normalized) return;
+    idSet.add(normalized);
+  };
+  const addNumber = (value) => {
+    const normalized = normalizeValue(value);
+    if (!normalized) return;
+    numberSet.add(normalized);
+  };
+
+  if (inputValue) {
+    addNumber(inputValue);
+    if (/^\d+$/.test(inputValue)) {
+      addId(inputValue);
+    }
+  }
+  if (detectionData) {
+    if (detectionData.bcOrderId) {
+      addId(detectionData.bcOrderId);
+      addNumber(detectionData.bcOrderId);
+    }
+    if (detectionData.tranId) {
+      addNumber(detectionData.tranId);
+    }
+  }
+
+  criteria.bcOrderIds = Array.from(idSet);
+  criteria.orderNumbers = Array.from(numberSet);
+  return criteria;
+}
+
+function collectCustomerLookupCriteria() {
+  const criteria = { customerIds: [], emails: [] };
+  const detectionData = latestNetSuitePayload?.data || null;
+  const inputValue = normalizeValue($('sku')?.value ?? '');
+  const idSet = new Set();
+  const emailSet = new Set();
+
+  const addId = (value) => {
+    const normalized = normalizeValue(value);
+    if (!normalized) return;
+    idSet.add(normalized);
+  };
+  const addEmail = (value) => {
+    const normalized = normalizeValue(value);
+    if (!normalized) return;
+    emailSet.add(normalized);
+  };
+
+  if (inputValue) {
+    if (/^\d+$/.test(inputValue)) {
+      addId(inputValue);
+    }
+    if (/@/.test(inputValue)) {
+      addEmail(inputValue);
+    }
+  }
+  if (detectionData) {
+    if (detectionData.bcCustomerId) {
+      addId(detectionData.bcCustomerId);
+    }
+    if (detectionData.email) {
+      addEmail(detectionData.email);
+    }
+  }
+
+  criteria.customerIds = Array.from(idSet);
+  criteria.emails = Array.from(emailSet);
+  return criteria;
+}
+
+async function performItemLookup() {
+  const sku = normalizeValue($('sku')?.value ?? '');
+  if (!sku) {
+    setStatus('Enter an SKU.', false);
+    return;
+  }
+  setStatus('Looking up...');
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'bc-lookup', recordType: 'item', sku });
+    if (res?.ok) {
+      const summary = renderBCCard(res?.data ?? null);
+      applyLookupStatusFromSummary(summary);
+    } else {
+      renderBCCard(null);
+      handleLookupError(res?.error);
+    }
+  } catch (e) {
+    renderBCCard(null);
+    handleLookupError(String(e));
+  }
+}
+
+async function performOrderLookup() {
+  const { bcOrderIds, orderNumbers } = collectOrderLookupCriteria();
+  if (bcOrderIds.length === 0 && orderNumbers.length === 0) {
+    setStatus('Provide a BigCommerce order ID or order number.', false);
+    return;
+  }
+  setStatus('Looking up order...');
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'bc-lookup',
+      recordType: 'order',
+      bcOrderIds,
+      orderNumbers,
+    });
+    if (res?.ok) {
+      const summary = renderBCCard(res?.data ?? null);
+      applyLookupStatusFromSummary(summary);
+    } else {
+      renderBCCard(null);
+      handleLookupError(res?.error);
+    }
+  } catch (e) {
+    renderBCCard(null);
+    handleLookupError(String(e));
+  }
+}
+
+async function performCustomerLookup() {
+  const { customerIds, emails } = collectCustomerLookupCriteria();
+  if (customerIds.length === 0 && emails.length === 0) {
+    setStatus('Provide a BigCommerce customer ID or email.', false);
+    return;
+  }
+  setStatus('Looking up customer...');
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'bc-lookup',
+      recordType: 'customer',
+      customerIds,
+      emails,
+    });
+    if (res?.ok) {
+      const summary = renderBCCard(res?.data ?? null);
+      applyLookupStatusFromSummary(summary);
+    } else {
+      renderBCCard(null);
+      handleLookupError(res?.error);
+    }
+  } catch (e) {
+    renderBCCard(null);
+    handleLookupError(String(e));
+  }
 }
 
 function getLookupStatusFromSummary(summary) {
@@ -474,12 +682,30 @@ function getLookupStatusFromSummary(summary) {
     return { message: 'Lookup completed.', tone: null };
   }
   if (!effectiveSummary.hasBcResult) {
+    if (detectionType === 'order') {
+      return { message: 'No BigCommerce order found.', tone: false };
+    }
+    if (detectionType === 'customer') {
+      return { message: 'No BigCommerce customer found.', tone: false };
+    }
     return { message: 'No BigCommerce results found.', tone: false };
   }
   if (effectiveSummary.hasDifferences) {
+    if (detectionType === 'order') {
+      return { message: 'BigCommerce order differs from NetSuite values.', tone: 'warn' };
+    }
+    if (detectionType === 'customer') {
+      return { message: 'BigCommerce customer differs from NetSuite values.', tone: 'warn' };
+    }
     return { message: 'Discrepancies found — see inline BigCommerce values.', tone: 'warn' };
   }
   if (effectiveSummary.allMatch) {
+    if (detectionType === 'order') {
+      return { message: 'BigCommerce order matches NetSuite values.', tone: true };
+    }
+    if (detectionType === 'customer') {
+      return { message: 'BigCommerce customer matches NetSuite values.', tone: true };
+    }
     return { message: 'All comparable BigCommerce values match NetSuite.', tone: true };
   }
   if (!effectiveSummary.hasComparableValues) {
@@ -497,10 +723,15 @@ function applyLookupStatusFromSummary(summary) {
 function renderNetSuite(payload){
   const nextPayload = normalizeDetectedPayload(payload) || null;
   const payloadChanged = !payloadsAreEqual(latestNetSuitePayload, nextPayload);
+  const previousType = lastDetectionType;
+  const nextType = nextPayload?.type || 'item';
   latestNetSuitePayload = nextPayload;
   if (payloadChanged && lastSearchResult) {
     lastSearchResult = null;
   }
+  setLookupInputFromDetection(nextPayload, { force: previousType !== nextType });
+  lastDetectionType = nextType;
+  updateLookupControls();
   renderIdSummary();
 }
 
@@ -614,6 +845,7 @@ $('unlockBtn').addEventListener('click', async () => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
+  updateLookupControls();
   applyDetectedFromPage('load');
 });
 
@@ -623,19 +855,13 @@ $('useDetected').addEventListener('click', () => {
 });
 
 $('lookup').addEventListener('click', async () => {
-  const sku = $('sku').value.trim();
-  if (!sku) { setStatus('Enter an SKU.', false); return; }
-  setStatus('Looking up...');
-  const res = await chrome.runtime.sendMessage({ type: "bc-lookup", sku });
-  if (res?.ok) {
-    const summary = renderBCCard(res?.data ?? null);
-    applyLookupStatusFromSummary(summary);
+  const detectionType = latestNetSuitePayload?.type || 'item';
+  if (detectionType === 'order') {
+    await performOrderLookup();
+  } else if (detectionType === 'customer') {
+    await performCustomerLookup();
   } else {
-    renderBCCard(null);
-    setStatus(res?.error || 'Error', false);
-    if (/LOCKED/.test(res?.error||'')) {
-      setStatus('Locked 🔒 — use "Unlock" or Options to unlock.', false);
-    }
+    await performItemLookup();
   }
 });
 
@@ -644,10 +870,13 @@ chrome.runtime.onMessage.addListener((msg) => {
     if (msg.result && !msg.result.error) {
       const summary = renderBCCard(msg.result);
       applyLookupStatusFromSummary(summary);
-      if (!$('sku').value) $('sku').value = msg.sku || '';
+      const detectionType = latestNetSuitePayload?.type || 'item';
+      if (detectionType === 'item' && normalizeValue($('sku')?.value ?? '') === '') {
+        $('sku').value = normalizeValue(msg.sku || '');
+      }
     } else {
       renderBCCard(null);
-      setStatus(msg.result?.error || 'Error', false);
+      handleLookupError(msg.result?.error);
     }
   }
 });
