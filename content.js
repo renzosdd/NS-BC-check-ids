@@ -197,6 +197,17 @@ function pickFieldValue(field){ const vals=getFieldCandidates(field); return val
 
 function detectRecordType(){
   try{
+    const heading=document.querySelector('h1.uir-record-type');
+    const headingText=(heading?.textContent||"").trim().toLowerCase();
+    if(headingText){
+      if(/sales\s*order/.test(headingText)) return "order";
+      if(/customer/.test(headingText)) return "customer";
+      if(/item/.test(headingText)) return "item";
+    }
+  }catch(e){
+    // ignore heading detection errors
+  }
+  try{
     if(fieldExists("custbody_tt_bc_order_id")) return "order";
     if(fieldExists("custentity_tt_bc_cust_id")) return "customer";
   }catch(e){

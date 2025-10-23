@@ -13,6 +13,8 @@ const BADGE_COLORS = {
   detectedMultiple: "#9334E6",
 };
 
+let lastLookupResult = null;
+
 function getDetectedSkuCount(payload) {
   if (!payload) return 0;
   const type = payload.type || null;
@@ -142,7 +144,7 @@ function normalizeLookupRequest(raw) {
   return request;
 }
 
-function normalizeItemResult({ source, sku, productId, variantId, productName, raw, request }) {
+function normalizeItemResult({ source, sku, productId, variantId, productName, raw, request, extras }) {
   return {
     recordType: "item",
     source: source || null,
@@ -154,10 +156,11 @@ function normalizeItemResult({ source, sku, productId, variantId, productName, r
       productName: productName ?? null,
     },
     raw: raw ?? null,
+    extras: extras && typeof extras === "object" ? { ...extras } : null,
   };
 }
 
-function normalizeOrderResult({ source, order, request }) {
+function normalizeOrderResult({ source, order, request, extras }) {
   if (!order || typeof order !== "object") {
     return {
       recordType: "order",
@@ -165,6 +168,7 @@ function normalizeOrderResult({ source, order, request }) {
       request: request || null,
       data: null,
       raw: null,
+      extras: null,
     };
   }
   const billing = order.billing_address || {};
@@ -188,6 +192,7 @@ function normalizeOrderResult({ source, order, request }) {
     request: request || null,
     data: normalized,
     raw: order,
+    extras: extras && typeof extras === "object" ? { ...extras } : null,
   };
 }
 
@@ -235,51 +240,146 @@ function uniqueStrings(...groups) {
   return ordered;
 }
 
+function buildError(message, details) {
+  const base = message || 'Request failed';
+  if (!details) return base;
+  return `${base}: ${details}`;
+}
+
+async function fetchOrderRelatedCollection(baseUrl, headers, orderId, resource) {
+  if (!orderId) {
+    return { entries: [], error: 'Missing order ID' };
+  }
+  const url = `${baseUrl}/orders/${encodeURIComponent(orderId)}/${resource}`;
+  try {
+    const response = await fetch(url, { headers });
+    if (response.status === 404) {
+      return { entries: [] };
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      return { entries: [], error: buildError(`Error fetching order ${resource}`, `${response.status} ${text}`) };
+    }
+    const data = await response.json();
+    return { entries: Array.isArray(data) ? data : [] };
+  } catch (e) {
+    return { entries: [], error: buildError(`Error fetching order ${resource}`, String(e)) };
+  }
+}
+
+async function fetchProductMetafields(cfg, productId) {
+  if (!productId) {
+    return { entries: [], error: 'Missing product ID' };
+  }
+  const baseV3 = `https://api.bigcommerce.com/stores/${cfg.storeHash}/v3`;
+  const headers = authHeaders(cfg);
+  const url = `${baseV3}/catalog/products/${encodeURIComponent(productId)}/metafields?limit=250`;
+  try {
+    const response = await fetch(url, { headers });
+    if (!response.ok) {
+      const text = await response.text();
+      return { entries: [], error: buildError('Error fetching product metafields', `${response.status} ${text}`) };
+    }
+    const json = await response.json();
+    const entries = Array.isArray(json?.data) ? json.data : [];
+    return { entries };
+  } catch (e) {
+    return { entries: [], error: buildError('Error fetching product metafields', String(e)) };
+  }
+}
+
+async function buildOrderExtras(baseUrl, headers, orderId) {
+  const [shipping, coupons] = await Promise.all([
+    fetchOrderRelatedCollection(baseUrl, headers, orderId, 'shipping_addresses'),
+    fetchOrderRelatedCollection(baseUrl, headers, orderId, 'coupons'),
+  ]);
+  return {
+    shippingAddresses: shipping.entries,
+    shippingAddressesError: shipping.error || null,
+    coupons: coupons.entries,
+    couponsError: coupons.error || null,
+  };
+}
+
+function cloneLookupResult(result) {
+  if (!result || typeof result !== 'object') return null;
+  if (typeof structuredClone === 'function') {
+    try {
+      return structuredClone(result);
+    } catch (e) {
+      // fall back to JSON clone
+    }
+  }
+  try {
+    return JSON.parse(JSON.stringify(result));
+  } catch (e) {
+    return { ...result };
+  }
+}
+
 async function bcLookupItem(cfg, request) {
   const sku = (request?.sku || "").trim();
   if (!sku) throw new Error("Enter an SKU to look up.");
   const base = `https://api.bigcommerce.com/stores/${cfg.storeHash}/v3`;
+  const headers = authHeaders(cfg);
+  let candidate = null;
 
   {
     const url = `${base}/catalog/variants?sku=${encodeURIComponent(sku)}&limit=1`;
-    const r = await fetch(url, { headers: authHeaders(cfg) });
+    const r = await fetch(url, { headers });
     if (!r.ok) { const t = await r.text(); throw new Error(`Error variants: ${r.status} ${t}`); }
     const j = await r.json();
     const v = (j.data || [])[0];
     if (v) {
-      return normalizeItemResult({
+      candidate = {
         source: "catalog/variants?sku=",
-        sku,
-        productId: v.product_id,
-        variantId: v.id,
-        productName: v.product?.name,
+        productId: v.product_id ?? null,
+        variantId: v.id ?? null,
+        productName: v.product?.name ?? null,
         raw: v,
         request: { sku },
-      });
+      };
     }
   }
 
-  {
+  if (!candidate) {
     const url = `${base}/catalog/products?sku=${encodeURIComponent(sku)}&include=variants&limit=1`;
-    const r = await fetch(url, { headers: authHeaders(cfg) });
+    const r = await fetch(url, { headers });
     if (!r.ok) { const t = await r.text(); throw new Error(`Error products: ${r.status} ${t}`); }
     const j = await r.json();
     const p = (j.data || [])[0];
     if (p) {
-      const v = (p.variants || []).find(variant => (variant.sku || "").trim() === sku.trim());
-      return normalizeItemResult({
+      const trimmedSku = sku.trim();
+      const v = (p.variants || []).find(variant => (variant.sku || "").trim() === trimmedSku);
+      candidate = {
         source: v ? "catalog/products?sku=&include=variants (matched variant)" : "catalog/products?sku=&include=variants (no variant match)",
-        sku,
-        productId: p.id,
-        variantId: v ? v.id : null,
-        productName: p.name,
+        productId: p.id ?? null,
+        variantId: v ? v.id ?? null : null,
+        productName: p.name ?? null,
         raw: { product: p, variant: v || null },
         request: { sku },
-      });
+      };
     }
   }
 
-  throw new Error(`SKU "${sku}" not found in BigCommerce.`);
+  if (!candidate) {
+    throw new Error(`SKU "${sku}" not found in BigCommerce.`);
+  }
+
+  const metafieldsInfo = await fetchProductMetafields(cfg, candidate.productId);
+  return normalizeItemResult({
+    source: candidate.source,
+    sku,
+    productId: candidate.productId,
+    variantId: candidate.variantId,
+    productName: candidate.productName,
+    raw: candidate.raw,
+    request: candidate.request,
+    extras: {
+      metafields: metafieldsInfo.entries,
+      metafieldsError: metafieldsInfo.error || null,
+    },
+  });
 }
 
 async function bcLookupOrder(cfg, request) {
@@ -310,7 +410,8 @@ async function bcLookupOrder(cfg, request) {
     if (!r.ok) { const t = await r.text(); throw new Error(`Error fetching order ${id}: ${r.status} ${t}`); }
     const order = await r.json();
     if (order && typeof order === "object") {
-      return normalizeOrderResult({ source: `orders/${id}`, order, request: requestDetails });
+      const extras = await buildOrderExtras(baseV2, headers, order.id ?? id);
+      return normalizeOrderResult({ source: `orders/${id}`, order, request: requestDetails, extras });
     }
   }
 
@@ -328,7 +429,8 @@ async function bcLookupOrder(cfg, request) {
     if (Array.isArray(orders) && orders.length > 0) {
       const order = orders[0];
       if (order && typeof order === "object") {
-        return normalizeOrderResult({ source: `orders?reference=${number}`, order, request: requestDetails });
+        const extras = await buildOrderExtras(baseV2, headers, order.id ?? null);
+        return normalizeOrderResult({ source: `orders?reference=${number}`, order, request: requestDetails, extras });
       }
     }
   }
@@ -375,13 +477,16 @@ async function bcLookup(rawRequest) {
   const cfg = await getSettingsUnlocked();
   if (!cfg.storeHash || !cfg.accessToken) throw new Error("Incomplete configuration. Unlock in Options.");
 
+  let result;
   if (request.recordType === "order") {
-    return bcLookupOrder(cfg, request);
+    result = await bcLookupOrder(cfg, request);
+  } else if (request.recordType === "customer") {
+    result = await bcLookupCustomer(cfg, request);
+  } else {
+    result = await bcLookupItem(cfg, request);
   }
-  if (request.recordType === "customer") {
-    return bcLookupCustomer(cfg, request);
-  }
-  return bcLookupItem(cfg, request);
+  lastLookupResult = cloneLookupResult(result);
+  return result;
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -450,6 +555,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     const tabId = msg.tabId ?? sender.tab?.id ?? null;
     const payload = tabId != null ? (lastDetectedByTab.get(tabId) || null) : null;
     sendResponse({ ok: true, payload });
+    return;
+  }
+
+  if (msg?.type === "get-last-lookup-result") {
+    sendResponse({ ok: true, result: cloneLookupResult(lastLookupResult) });
     return;
   }
 
