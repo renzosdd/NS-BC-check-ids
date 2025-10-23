@@ -59,9 +59,8 @@
     .bc-summary-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 8px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f8fafc; }
     .bc-summary-label { font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; }
     .bc-summary-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #111827; word-break: break-all; }
-    .bc-json { display: flex; flex-direction: column; gap: 6px; }
-    .bc-json-title { font-size: 12px; font-weight: 600; color: #4338ca; text-transform: uppercase; letter-spacing: 0.06em; }
-    .json-viewer { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; max-height: 160px; overflow: auto; border: 1px solid #1e293b; white-space: pre-wrap; }
+    .card-actions .btn.primary-link { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
+    .card-actions .btn.primary-link:hover { background: #c7d2fe; color: #312e81; }
     .toast { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 12px; opacity: 0; transition: opacity .2s ease; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.3); }
     .toast.show { opacity: 1; }
   </style>
@@ -95,7 +94,7 @@
     <div class="card-header" id="summaryHeader">
       <div>
         <div class="card-title">ID Summary</div>
-        <div class="card-subtitle muted" id="summaryMeta">Review detected NetSuite identifiers. BigCommerce differences will appear inline after a lookup.</div>
+        <div class="card-subtitle muted" id="summaryMeta">NetSuite item identifiers appear automatically when viewing an item record.</div>
       </div>
     </div>
     <div class="card-body">
@@ -109,24 +108,6 @@
             <div class="placeholder muted">No detected data.</div>
           </div>
         </div>
-        <div class="summary-column hidden" id="orderSummarySection">
-          <div class="column-header">
-            <div class="column-title">Order</div>
-            <div class="column-meta" id="orderMeta">Waiting for detected data.</div>
-          </div>
-          <div class="id-list" id="orderSummary">
-            <div class="placeholder muted">No detected order data.</div>
-          </div>
-        </div>
-        <div class="summary-column hidden" id="customerSummarySection">
-          <div class="column-header">
-            <div class="column-title">Customer</div>
-            <div class="column-meta" id="customerMeta">Waiting for detected data.</div>
-          </div>
-          <div class="id-list" id="customerSummary">
-            <div class="placeholder muted">No detected customer data.</div>
-          </div>
-        </div>
       </div>
     </div>
   </div>
@@ -138,6 +119,7 @@
         <div class="card-subtitle muted" id="bcResultMeta">Run a lookup to view the BigCommerce payload.</div>
       </div>
       <div class="card-actions">
+        <button class="btn primary-link small" id="bcViewPayload" disabled>View payload</button>
         <button class="btn ghost small" id="bcCopyJson" disabled>Copy JSON</button>
         <button class="btn secondary small" id="bcDownloadJson" disabled>Download JSON</button>
       </div>
@@ -145,10 +127,6 @@
     <div class="card-body">
       <div class="bc-summary" id="bcResultSummary">
         <div class="placeholder muted">No lookup yet.</div>
-      </div>
-      <div class="bc-json">
-        <div class="bc-json-title">Payload</div>
-        <pre class="json-viewer" id="bcJson">Run a lookup to view BigCommerce JSON.</pre>
       </div>
     </div>
   </div>
