@@ -11,8 +11,13 @@
     .card-title { font-weight: 700; font-size: 16px; color: #111827; }
     .card-subtitle { font-size: 12px; margin-top: 2px; }
     .muted { color: #6b7280; }
+    .card-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .control-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
     .action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+    .type-switch { display: flex; gap: 6px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 4px; margin-bottom: 10px; }
+    .lookup-type-btn { flex: 1; border: none; background: transparent; border-radius: 8px; padding: 6px 8px; font-size: 12px; font-weight: 600; color: #4338ca; cursor: pointer; transition: background 0.2s, color 0.2s; }
+    .lookup-type-btn:hover { background: rgba(99, 102, 241, 0.15); }
+    .lookup-type-btn.active { background: #4338ca; color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2); }
     input { width: 100%; padding: 8px 10px; font-size: 14px; border-radius: 10px; border: 1px solid #d1d5db; background: #fff; color: #111827; }
     .btn { padding: 8px 10px; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; font-size: 13px; transition: background 0.2s, border-color 0.2s; }
     .btn.primary { background: #4f46e5; color: #fff; }
@@ -21,6 +26,7 @@
     .btn.secondary:hover { background: #e5e7eb; }
     .btn.ghost { background: #f9fafb; color: #1f2937; border: 1px solid #e5e7eb; }
     .btn.ghost:hover { background: #eef2ff; }
+    .btn.small { font-size: 12px; padding: 6px 8px; border-radius: 8px; }
     .status { font-size: 12px; margin-top: 8px; min-height: 16px; }
     .status.ok { color: #047857; }
     .status.bad { color: #dc2626; }
@@ -49,6 +55,13 @@
     .id-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 4px 6px; border-radius: 6px; background: #ffffff; border: 1px solid #e5e7eb; min-height: 20px; display: flex; align-items: center; word-break: break-all; }
     .comparison-note { grid-column: 1 / -1; font-size: 11px; color: #b91c1c; display: flex; gap: 4px; align-items: center; margin-top: 4px; }
     .comparison-note code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; padding: 2px 4px; border-radius: 4px; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    .bc-summary { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .bc-summary-row { display: flex; justify-content: space-between; gap: 12px; padding: 6px 8px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f8fafc; }
+    .bc-summary-label { font-size: 11px; font-weight: 600; color: #475569; text-transform: uppercase; letter-spacing: 0.04em; }
+    .bc-summary-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #111827; word-break: break-all; }
+    .bc-json { display: flex; flex-direction: column; gap: 6px; }
+    .bc-json-title { font-size: 12px; font-weight: 600; color: #4338ca; text-transform: uppercase; letter-spacing: 0.06em; }
+    .json-viewer { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; max-height: 160px; overflow: auto; border: 1px solid #1e293b; white-space: pre-wrap; }
     .toast { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 12px; opacity: 0; transition: opacity .2s ease; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.3); }
     .toast.show { opacity: 1; }
   </style>
@@ -57,9 +70,14 @@
   <div class="card control-card">
     <div class="card-header">
       <div>
-        <div class="card-title">BigCommerce SKU Lookup</div>
-        <div class="card-subtitle muted">Look up IDs and compare them with NetSuite.</div>
+        <div class="card-title">BigCommerce Lookup</div>
+        <div class="card-subtitle muted">Look up items, orders, or customers and compare with NetSuite.</div>
       </div>
+    </div>
+    <div class="type-switch" role="tablist" aria-label="Lookup type">
+      <button class="lookup-type-btn active" data-type="item" aria-pressed="true">Item</button>
+      <button class="lookup-type-btn" data-type="order" aria-pressed="false">Order</button>
+      <button class="lookup-type-btn" data-type="customer" aria-pressed="false">Customer</button>
     </div>
     <div class="control-grid">
       <input id="sku" placeholder="SKU..." />
@@ -109,6 +127,28 @@
             <div class="placeholder muted">No detected customer data.</div>
           </div>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" id="bcResultCard">
+    <div class="card-header">
+      <div>
+        <div class="card-title" id="bcResultTitle">BigCommerce Result</div>
+        <div class="card-subtitle muted" id="bcResultMeta">Run a lookup to view the BigCommerce payload.</div>
+      </div>
+      <div class="card-actions">
+        <button class="btn ghost small" id="bcCopyJson" disabled>Copy JSON</button>
+        <button class="btn secondary small" id="bcDownloadJson" disabled>Download JSON</button>
+      </div>
+    </div>
+    <div class="card-body">
+      <div class="bc-summary" id="bcResultSummary">
+        <div class="placeholder muted">No lookup yet.</div>
+      </div>
+      <div class="bc-json">
+        <div class="bc-json-title">Payload</div>
+        <pre class="json-viewer" id="bcJson">Run a lookup to view BigCommerce JSON.</pre>
       </div>
     </div>
   </div>
