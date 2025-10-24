@@ -22,6 +22,9 @@ let lastSearchResult = null;
 let lastComparisonSummary = createEmptyComparisonSummary();
 let currentLookupType = 'item';
 let lookupTypeLockedByUser = false;
+let accountSummaries = [];
+let activeAccountId = null;
+let hasActiveAccountConfigured = false;
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -1207,15 +1210,37 @@ async function initPopup() {
   updateLookupTypeButtons();
   updateLookupControls();
   renderBigCommerceDetails();
+
   document.querySelectorAll('.lookup-type-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const type = btn.getAttribute('data-type');
       setLookupType(type, { userInitiated: true });
     });
   });
+
+  const select = $('accountSelect');
+  if (select) {
+    select.addEventListener('change', handleAccountSelectionChange);
+  }
+
+  const manageBtn = $('manageAccounts');
+  if (manageBtn) {
+    manageBtn.addEventListener('click', (event) => {
+      event.preventDefault();
+      if (chrome.runtime?.openOptionsPage) {
+        chrome.runtime.openOptionsPage();
+      } else {
+        const optionsUrl = chrome.runtime.getURL('options.html');
+        window.open(optionsUrl, '_blank');
+      }
+    });
+  }
+
   $('bcViewPayload')?.addEventListener('click', () => { openPayloadViewer(); });
-  applyDetectedFromPage('load');
-});
+
+  await loadAccounts();
+  await applyDetectedFromPage('load');
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   initPopup().catch((error) => {
