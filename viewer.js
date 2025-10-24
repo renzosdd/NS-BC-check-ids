@@ -1,8 +1,8 @@
 const $ = (id) => document.getElementById(id);
 
 let lastLookupResult = null;
-let currentJsonText = '';
 let activeTabId = null;
+const tabPayloads = new Map();
 
 function toast(message) {
   const el = $('viewerToast');
@@ -69,6 +69,7 @@ function renderKeyValue(label, value) {
 function renderOverview(result) {
   const type = (result?.recordType || 'item').toLowerCase();
   const data = result?.data || {};
+  const extras = result?.extras || {};
   let rows = [];
   if (type === 'order') {
     rows = [
@@ -135,6 +136,67 @@ function renderJsonPanel(jsonText) {
       <pre class="json" aria-label="BigCommerce payload">${escapeHtml(jsonText)}</pre>
     </div>
   `;
+}
+
+function registerTabPayload(tabId, payload, fileSuffix) {
+  if (!tabId) return '';
+  if (payload == null) {
+    tabPayloads.delete(tabId);
+    return '';
+  }
+  let jsonText = '';
+  if (typeof payload === 'string') {
+    jsonText = payload;
+  } else {
+    try {
+      jsonText = JSON.stringify(payload, null, 2);
+    } catch (e) {
+      jsonText = '';
+    }
+  }
+  if (!jsonText) {
+    tabPayloads.delete(tabId);
+    return '';
+  }
+  tabPayloads.set(tabId, { jsonText, fileSuffix: fileSuffix || tabId || 'payload' });
+  return jsonText;
+}
+
+async function copyTabJson(tabId) {
+  const entry = tabPayloads.get(tabId);
+  if (!entry?.jsonText) {
+    toast('No payload to copy');
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(entry.jsonText);
+    toast('JSON copied');
+  } catch (e) {
+    toast('Could not copy JSON');
+  }
+}
+
+function downloadTabJson(tabId) {
+  const entry = tabPayloads.get(tabId);
+  if (!entry?.jsonText || !lastLookupResult) {
+    toast('No payload to download');
+    return;
+  }
+  try {
+    const filename = buildSuggestedFilename(lastLookupResult, entry.fileSuffix);
+    const blob = new Blob([entry.jsonText], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+    toast('Download started');
+  } catch (e) {
+    toast('Could not download JSON');
+  }
 }
 
 function renderShippingAddresses(extras) {
@@ -367,13 +429,31 @@ function selectTab(id) {
   activeTabId = id;
 }
 
+function handleTabActionClick(event) {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) return;
+  const action = target.getAttribute('data-action');
+  const tabId = target.getAttribute('data-tab');
+  if (!action || !tabId) return;
+  if (action === 'copy') {
+    copyTabJson(tabId);
+  } else if (action === 'download') {
+    downloadTabJson(tabId);
+  }
+}
+
 function buildTabs(result) {
   const tabList = $('tabList');
   const tabPanels = $('tabPanels');
   if (!tabList || !tabPanels) return;
   const tabs = [];
+  tabPayloads.clear();
   tabs.push({ id: 'overview', label: 'Overview', content: renderOverview(result) });
-  tabs.push({ id: 'payload', label: 'Payload', content: renderJsonPanel(currentJsonText) });
+
+  const payloadData = getPayloadObject(result);
+  const payloadJson = registerTabPayload('payload', payloadData, 'payload');
+  tabs.push({ id: 'payload', label: 'Payload', content: renderJsonPanel(payloadJson) });
+
   const extras = result?.extras || {};
   if ((result?.recordType || '').toLowerCase() === 'order') {
     tabs.push({ id: 'shipping', label: 'Shipping addresses', content: renderShippingAddresses(extras) });
@@ -395,19 +475,26 @@ function buildTabs(result) {
     }
     tabs.push({ id: 'metafields', label: 'Metafields', content: renderMetafields(extras) });
   }
+
   tabList.innerHTML = tabs.map((tab, index) => `
     <button class="tab-button" role="tab" data-tab="${escapeHtml(tab.id)}" aria-selected="${index === 0 ? 'true' : 'false'}">${escapeHtml(tab.label)}</button>
   `).join('');
-  tabPanels.innerHTML = tabs.map((tab, index) => `
-    <div class="tab-panel${index === 0 ? ' active' : ''}" role="tabpanel" data-tab="${escapeHtml(tab.id)}">${tab.content}</div>
-  `).join('');
+  tabPanels.innerHTML = tabs.map((tab, index) => {
+    const hasPayload = tabPayloads.has(tab.id);
+    const actions = hasPayload
+      ? `<div class="tab-actions"><button class="secondary" data-action="copy" data-tab="${escapeHtml(tab.id)}">Copy JSON</button><button class="secondary" data-action="download" data-tab="${escapeHtml(tab.id)}">Download JSON</button></div>`
+      : '';
+    return `
+      <div class="tab-panel${index === 0 ? ' active' : ''}" role="tabpanel" data-tab="${escapeHtml(tab.id)}">${actions}${tab.content}</div>
+    `;
+  }).join('');
   tabList.querySelectorAll('.tab-button').forEach((btn) => {
     btn.addEventListener('click', () => selectTab(btn.dataset.tab));
   });
   activeTabId = tabs[0]?.id || null;
 }
 
-function buildSuggestedFilename(result) {
+function buildSuggestedFilename(result, suffix = '') {
   const type = (result?.recordType || 'item').toLowerCase();
   let hint = '';
   if (type === 'order') {
@@ -422,48 +509,12 @@ function buildSuggestedFilename(result) {
   } else {
     hint = String(Date.now());
   }
-  return `bigcommerce-${type}-${hint || 'payload'}.json`;
-}
-
-async function copyJson() {
-  if (!currentJsonText) {
-    toast('No payload to copy');
-    return;
+  const parts = ['bigcommerce', type || 'item', hint || 'payload'];
+  const normalizedSuffix = suffix ? suffix.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '') : '';
+  if (normalizedSuffix && normalizedSuffix !== hint) {
+    parts.push(normalizedSuffix);
   }
-  try {
-    await navigator.clipboard.writeText(currentJsonText);
-    toast('JSON copied');
-  } catch (e) {
-    toast('Could not copy JSON');
-  }
-}
-
-function downloadJson() {
-  if (!currentJsonText || !lastLookupResult) {
-    toast('No payload to download');
-    return;
-  }
-  try {
-    const blob = new Blob([currentJsonText], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = buildSuggestedFilename(lastLookupResult);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-    toast('Download started');
-  } catch (e) {
-    toast('Could not download JSON');
-  }
-}
-
-function jumpToPayloadTab() {
-  if (!activeTabId || activeTabId === 'payload') {
-    return;
-  }
-  selectTab('payload');
+  return `${parts.join('-')}.json`;
 }
 
 async function loadLastLookup() {
@@ -478,15 +529,10 @@ async function loadLastLookup() {
       return;
     }
     lastLookupResult = response.result;
-    const payload = getPayloadObject(lastLookupResult);
-    currentJsonText = payload ? JSON.stringify(payload, null, 2) : '';
     const type = (lastLookupResult.recordType || 'item').toLowerCase();
     const metaParts = [`BigCommerce ${type}`];
     if (lastLookupResult.source) metaParts.push(lastLookupResult.source);
     $('viewerMeta').textContent = metaParts.join(' · ');
-    $('viewerCopy').disabled = !currentJsonText;
-    $('viewerDownload').disabled = !currentJsonText;
-    $('viewerViewRaw').disabled = false;
     buildTabs(lastLookupResult);
     showContent();
   } catch (e) {
@@ -495,9 +541,7 @@ async function loadLastLookup() {
 }
 
 function init() {
-  $('viewerCopy')?.addEventListener('click', () => { copyJson(); });
-  $('viewerDownload')?.addEventListener('click', () => { downloadJson(); });
-  $('viewerViewRaw')?.addEventListener('click', () => { jumpToPayloadTab(); });
+  $('tabPanels')?.addEventListener('click', handleTabActionClick);
   loadLastLookup();
 }
 

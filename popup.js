@@ -53,9 +53,6 @@ function setStatus(msg, ok=null){
 function handleLookupError(errorMessage) {
   const message = (typeof errorMessage === 'string' && errorMessage.trim() !== '') ? errorMessage : 'Error';
   setStatus(message, false);
-  if (/LOCKED/.test(message)) {
-    setStatus('Locked 🔒 — use "Unlock" or Options to unlock.', false);
-  }
 }
 
 function toast(msg){
@@ -101,6 +98,92 @@ function normalizeValue(value) {
   if (value === null || value === undefined) return '';
   if (typeof value === 'string') return value.trim();
   return String(value);
+}
+
+function renderAccountOptions() {
+  const select = $('accountSelect');
+  if (!select) return;
+  if (!Array.isArray(accountSummaries) || accountSummaries.length === 0) {
+    select.innerHTML = '<option value="" disabled selected>No accounts saved</option>';
+    select.disabled = true;
+    return;
+  }
+  const options = ['<option value="" disabled>Select an account</option>'];
+  accountSummaries.forEach((account) => {
+    if (!account || !account.id) return;
+    const rawName = account.name ? account.name : 'BigCommerce account';
+    const hash = account.storeHash ? account.storeHash : '';
+    const label = hash ? `${rawName} (${hash})` : rawName;
+    const isSelected = account.id === activeAccountId;
+    options.push(`<option value="${escapeHtml(account.id)}"${isSelected ? ' selected' : ''}>${escapeHtml(label)}</option>`);
+  });
+  select.innerHTML = options.join('');
+  select.disabled = false;
+  if (activeAccountId && select.value !== activeAccountId) {
+    select.value = activeAccountId;
+  }
+}
+
+function updateAccountAvailability() {
+  const lookupBtn = $('lookup');
+  hasActiveAccountConfigured = !!(activeAccountId && Array.isArray(accountSummaries) && accountSummaries.some((entry) => entry?.id === activeAccountId));
+  if (lookupBtn) {
+    lookupBtn.disabled = !hasActiveAccountConfigured;
+    lookupBtn.classList.toggle('disabled', !hasActiveAccountConfigured);
+  }
+  if (!hasActiveAccountConfigured) {
+    setStatus('Select a BigCommerce account to run lookups.', 'warn');
+  }
+}
+
+async function loadAccounts() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'account:get-list' });
+    if (!response?.ok) {
+      setStatus(response?.error || 'Could not load BigCommerce accounts.', false);
+      accountSummaries = [];
+      activeAccountId = null;
+      hasActiveAccountConfigured = false;
+      renderAccountOptions();
+      updateAccountAvailability();
+      return;
+    }
+    accountSummaries = Array.isArray(response.accounts) ? response.accounts : [];
+    activeAccountId = response.activeAccountId || null;
+    if (!activeAccountId && accountSummaries.length > 0) {
+      activeAccountId = accountSummaries[0].id;
+      await chrome.runtime.sendMessage({ type: 'account:set-active', id: activeAccountId });
+    }
+    renderAccountOptions();
+    updateAccountAvailability();
+  } catch (e) {
+    setStatus(`Could not load BigCommerce accounts: ${e}`, false);
+    accountSummaries = [];
+    activeAccountId = null;
+    hasActiveAccountConfigured = false;
+    renderAccountOptions();
+    updateAccountAvailability();
+  } finally {
+    await requestBadgeRefresh();
+  }
+}
+
+async function handleAccountSelectionChange(event) {
+  const selectedId = typeof event?.target?.value === 'string' ? event.target.value : '';
+  if (!selectedId) return;
+  try {
+    const res = await chrome.runtime.sendMessage({ type: 'account:set-active', id: selectedId });
+    if (!res?.ok) {
+      throw new Error(res?.error || 'Could not set active account.');
+    }
+    activeAccountId = selectedId;
+    hasActiveAccountConfigured = true;
+    updateAccountAvailability();
+    setStatus('BigCommerce account selected. Ready for lookups.', true);
+    await requestBadgeRefresh();
+  } catch (e) {
+    setStatus(String(e), false);
+  }
 }
 
 function pickFirstNonEmpty(...values) {
@@ -853,6 +936,10 @@ function collectCustomerLookupCriteria() {
 }
 
 async function performItemLookup() {
+  if (!hasActiveAccountConfigured) {
+    setStatus('Select a BigCommerce account to run lookups.', 'warn');
+    return;
+  }
   const sku = normalizeValue($('sku')?.value ?? '');
   if (!sku) {
     setStatus('Enter an SKU.', false);
@@ -875,6 +962,10 @@ async function performItemLookup() {
 }
 
 async function performOrderLookup() {
+  if (!hasActiveAccountConfigured) {
+    setStatus('Select a BigCommerce account to run lookups.', 'warn');
+    return;
+  }
   const { bcOrderIds, orderNumbers } = collectOrderLookupCriteria();
   if (bcOrderIds.length === 0 && orderNumbers.length === 0) {
     setStatus('Provide a BigCommerce order ID or order number.', false);
@@ -902,6 +993,10 @@ async function performOrderLookup() {
 }
 
 async function performCustomerLookup() {
+  if (!hasActiveAccountConfigured) {
+    setStatus('Select a BigCommerce account to run lookups.', 'warn');
+    return;
+  }
   const { customerIds, emails } = collectCustomerLookupCriteria();
   if (customerIds.length === 0 && emails.length === 0) {
     setStatus('Provide a BigCommerce customer ID or email.', false);
@@ -1046,6 +1141,9 @@ async function applyDetectedFromPage(context='load'){
     } else {
       setStatus('No SKU detected. You can enter it manually.', null);
     }
+    if (!hasActiveAccountConfigured) {
+      setStatus('Select a BigCommerce account to run lookups.', 'warn');
+    }
     await requestBadgeRefresh();
     return null;
   }
@@ -1092,6 +1190,9 @@ async function applyDetectedFromPage(context='load'){
         setStatus('No SKU detected on this page.', false);
       }
     }
+    if (!hasActiveAccountConfigured) {
+      setStatus('Select a BigCommerce account to run lookups.', 'warn');
+    }
     return payload;
   } catch (e) {
     renderNetSuite(null);
@@ -1102,16 +1203,7 @@ async function applyDetectedFromPage(context='load'){
   }
 }
 
-// Unlock flow
-$('unlockBtn').addEventListener('click', async () => {
-  const pass = prompt('Enter your password to unlock credentials:');
-  if (!pass) return;
-  const res = await chrome.runtime.sendMessage({ type: "unlock-creds", passphrase: pass });
-  setStatus(res?.ok ? 'Credentials unlocked ✅' : (res?.error || 'Error'), !!res?.ok);
-  await requestBadgeRefresh();
-});
-
-document.addEventListener('DOMContentLoaded', () => {
+async function initPopup() {
   updateLookupTypeButtons();
   updateLookupControls();
   renderBigCommerceDetails();
@@ -1125,7 +1217,11 @@ document.addEventListener('DOMContentLoaded', () => {
   applyDetectedFromPage('load');
 });
 
-$('openOptions').addEventListener('click', () => chrome.runtime.openOptionsPage());
+document.addEventListener('DOMContentLoaded', () => {
+  initPopup().catch((error) => {
+    setStatus(`Error initializing popup: ${error}`, false);
+  });
+});
 $('useDetected').addEventListener('click', () => {
   lookupTypeLockedByUser = false;
   if (latestNetSuitePayload?.type) {
