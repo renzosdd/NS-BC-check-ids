@@ -22,7 +22,6 @@ let lastSearchResult = null;
 let lastComparisonSummary = createEmptyComparisonSummary();
 let currentLookupType = 'item';
 let lookupTypeLockedByUser = false;
-let currentPayloadJsonText = '';
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -113,7 +112,7 @@ function pickFirstNonEmpty(...values) {
 }
 
 const ITEM_PAYLOAD_KEYS = ['sku', 'internalId', 'bcProductId', 'bcVariantId'];
-const ORDER_PAYLOAD_KEYS = ['tranId', 'internalId', 'bcOrderId'];
+const ORDER_PAYLOAD_KEYS = ['tranId', 'internalId', 'bcOrderId', 'customerName'];
 const CUSTOMER_PAYLOAD_KEYS = ['entityId', 'email', 'internalId', 'bcCustomerId'];
 
 function getComparableItemValue(itemData, key) {
@@ -665,61 +664,20 @@ function renderIdSummary(){
   return comparisonSummary;
 }
 
-function renderBcSummaryRow(label, value) {
-  const normalized = normalizeValue(value);
-  const display = normalized !== '' ? escapeHtml(normalized) : '&mdash;';
-  return `
-    <div class="bc-summary-row">
-      <div class="bc-summary-label">${escapeHtml(label)}</div>
-      <div class="bc-summary-value">${display}</div>
-    </div>
-  `;
-}
-
-function getResultPayloadObject(result) {
-  if (!result || typeof result !== 'object') return null;
-  if (result.raw && typeof result.raw === 'object') return result.raw;
-  if (result.data && typeof result.data === 'object') return result.data;
-  return null;
-}
-
-function buildSuggestedFilename(result) {
-  const type = getLookupTypeLabel(result?.recordType || 'item');
-  let hint = '';
-  if (type === 'order') {
-    hint = normalizeValue(result?.data?.orderNumber || result?.data?.id || '');
-  } else if (type === 'customer') {
-    hint = normalizeValue(result?.data?.email || result?.data?.id || '');
-  } else {
-    hint = normalizeValue(result?.data?.sku || result?.data?.bcProductId || '');
-  }
-  if (!hint) {
-    hint = String(Date.now());
-  } else {
-    hint = hint.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
-  }
-  return `bigcommerce-${type}-${hint || 'payload'}.json`;
-}
-
 function renderBigCommerceDetails() {
   const card = $('bcResultCard');
   const meta = $('bcResultMeta');
   const summary = $('bcResultSummary');
-  const copyBtn = $('bcCopyJson');
-  const downloadBtn = $('bcDownloadJson');
   const viewBtn = $('bcViewPayload');
   const title = $('bcResultTitle');
-  if (!card || !meta || !summary || !copyBtn || !downloadBtn || !viewBtn || !title) return;
+  if (!card || !meta || !summary || !viewBtn || !title) return;
 
   const result = lastSearchResult || null;
   if (!result) {
     title.textContent = 'BigCommerce Result';
     meta.textContent = 'Run a lookup to view the BigCommerce payload.';
     summary.innerHTML = '<div class="placeholder muted">No lookup yet.</div>';
-    copyBtn.disabled = true;
-    downloadBtn.disabled = true;
     viewBtn.disabled = true;
-    currentPayloadJsonText = '';
     return;
   }
 
@@ -727,81 +685,17 @@ function renderBigCommerceDetails() {
   const typeTitle = type.charAt(0).toUpperCase() + type.slice(1);
   title.textContent = `BigCommerce ${typeTitle}`;
 
-  const metaParts = [`${typeTitle} result`];
+  const metaParts = [`${typeTitle} lookup ready`];
   if (result.source) metaParts.push(result.source);
   meta.textContent = metaParts.join(' · ');
 
-  let summaryHtml = '';
-  const data = result.data || {};
-  if (type === 'order') {
-    summaryHtml = [
-      renderBcSummaryRow('Order ID', data.id),
-      renderBcSummaryRow('Order number', data.orderNumber),
-      renderBcSummaryRow('Reference', data.reference),
-      renderBcSummaryRow('Customer ID', data.customerId),
-      renderBcSummaryRow('Email', data.email),
-      renderBcSummaryRow('Status', data.status || data.statusId),
-      renderBcSummaryRow('Total (inc tax)', data.totalIncTax),
-    ].join('');
-  } else if (type === 'customer') {
-    summaryHtml = [
-      renderBcSummaryRow('Customer ID', data.id),
-      renderBcSummaryRow('Email', data.email),
-      renderBcSummaryRow('Name', [data.firstName, data.lastName].filter(Boolean).join(' ') || null),
-      renderBcSummaryRow('Company', data.company),
-      renderBcSummaryRow('Phone', data.phone),
-      renderBcSummaryRow('Group', data.customerGroupId),
-    ].join('');
-  } else {
-    summaryHtml = [
-      renderBcSummaryRow('SKU', data.sku),
-      renderBcSummaryRow('Product ID', data.bcProductId),
-      renderBcSummaryRow('Variant ID', data.bcVariantId),
-      renderBcSummaryRow('Product name', data.productName),
-    ].join('');
-  }
-  summary.innerHTML = summaryHtml || '<div class="placeholder muted">No summary data returned.</div>';
-
-  const payload = getResultPayloadObject(result);
-  currentPayloadJsonText = payload ? JSON.stringify(payload, null, 2) : '';
-  const hasPayload = currentPayloadJsonText !== '';
-  copyBtn.disabled = !hasPayload;
-  downloadBtn.disabled = !hasPayload;
-  viewBtn.disabled = !result;
-}
-
-async function copyPayloadJson() {
-  if (!currentPayloadJsonText) {
-    toast('No payload to copy');
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(currentPayloadJsonText);
-    toast('JSON copied');
-  } catch (e) {
-    toast('Could not copy JSON');
-  }
-}
-
-function downloadPayloadJson() {
-  if (!currentPayloadJsonText || !lastSearchResult) {
-    toast('No payload to download');
-    return;
-  }
-  try {
-    const blob = new Blob([currentPayloadJsonText], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = buildSuggestedFilename(lastSearchResult);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    setTimeout(() => URL.revokeObjectURL(url), 1500);
-    toast('Download started');
-  } catch (e) {
-    toast('Could not download JSON');
-  }
+  const overview = `
+    <div class="placeholder muted">
+      BigCommerce ${escapeHtml(typeTitle)} payload ready. Use "View payload" to review detailed fields.
+    </div>
+  `;
+  summary.innerHTML = overview;
+  viewBtn.disabled = false;
 }
 
 async function openPayloadViewer() {
@@ -1228,8 +1122,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
   $('bcViewPayload')?.addEventListener('click', () => { openPayloadViewer(); });
-  $('bcCopyJson')?.addEventListener('click', () => { copyPayloadJson(); });
-  $('bcDownloadJson')?.addEventListener('click', () => { downloadPayloadJson(); });
   applyDetectedFromPage('load');
 });
 
