@@ -13,7 +13,11 @@
     .muted { color: #6b7280; }
     .card-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
     .control-grid { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
-    .action-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+    .action-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 8px; margin-top: 8px; }
+    .account-select { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .account-select label { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; }
+    .account-controls { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+    select { width: 100%; padding: 8px 10px; font-size: 13px; border-radius: 10px; border: 1px solid #d1d5db; background: #fff; color: #111827; }
     .type-switch { display: flex; gap: 6px; background: #eef2ff; border: 1px solid #c7d2fe; border-radius: 12px; padding: 4px; margin-bottom: 10px; }
     .lookup-type-btn { flex: 1; border: none; background: transparent; border-radius: 8px; padding: 6px 8px; font-size: 12px; font-weight: 600; color: #4338ca; cursor: pointer; transition: background 0.2s, color 0.2s; }
     .lookup-type-btn:hover { background: rgba(99, 102, 241, 0.15); }
@@ -73,6 +77,15 @@
         <div class="card-subtitle muted">Look up items, orders, or customers and compare with NetSuite.</div>
       </div>
     </div>
+    <div class="account-select">
+      <label for="accountSelect">BigCommerce account</label>
+      <div class="account-controls">
+        <select id="accountSelect" aria-label="BigCommerce account">
+          <option value="" disabled selected>Select an account</option>
+        </select>
+        <button class="btn secondary small" id="manageAccounts">Manage</button>
+      </div>
+    </div>
     <div class="type-switch" role="tablist" aria-label="Lookup type">
       <button class="lookup-type-btn active" data-type="item" aria-pressed="true">Item</button>
       <button class="lookup-type-btn" data-type="order" aria-pressed="false">Order</button>
@@ -84,8 +97,6 @@
     </div>
     <div class="action-grid">
       <button class="btn primary" id="lookup">Look up</button>
-      <button class="btn secondary" id="openOptions">Options</button>
-      <button class="btn secondary" id="unlockBtn">Unlock</button>
     </div>
     <div id="status" class="status muted"></div>
   </div>
@@ -94,7 +105,7 @@
     <div class="card-header" id="summaryHeader">
       <div>
         <div class="card-title">ID Summary</div>
-        <div class="card-subtitle muted" id="summaryMeta">NetSuite item identifiers appear automatically when viewing an item record.</div>
+        <div class="card-subtitle muted" id="summaryMeta">NetSuite identifiers appear automatically when viewing a record.</div>
       </div>
     </div>
     <div class="card-body">
@@ -105,6 +116,24 @@
             <div class="column-meta" id="itemMeta">Waiting for detected data.</div>
           </div>
           <div class="id-list" id="itemSummary">
+            <div class="placeholder muted">No detected data.</div>
+          </div>
+        </div>
+        <div class="summary-column hidden" id="orderSummarySection">
+          <div class="column-header">
+            <div class="column-title">Order</div>
+            <div class="column-meta" id="orderMeta">Waiting for detected data.</div>
+          </div>
+          <div class="id-list" id="orderSummary">
+            <div class="placeholder muted">No detected data.</div>
+          </div>
+        </div>
+        <div class="summary-column hidden" id="customerSummarySection">
+          <div class="column-header">
+            <div class="column-title">Customer</div>
+            <div class="column-meta" id="customerMeta">Waiting for detected data.</div>
+          </div>
+          <div class="id-list" id="customerSummary">
             <div class="placeholder muted">No detected data.</div>
           </div>
         </div>
@@ -120,8 +149,6 @@
       </div>
       <div class="card-actions">
         <button class="btn primary-link small" id="bcViewPayload" disabled>View payload</button>
-        <button class="btn ghost small" id="bcCopyJson" disabled>Copy JSON</button>
-        <button class="btn secondary small" id="bcDownloadJson" disabled>Download JSON</button>
       </div>
     </div>
     <div class="card-body">

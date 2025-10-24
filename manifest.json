@@ -13,11 +13,13 @@
     "storage",
     "activeTab",
     "scripting",
-    "contextMenus"
+    "contextMenus",
+    "cookies"
   ],
   "host_permissions": [
     "https://api.bigcommerce.com/*",
-    "https://*.netsuite.com/*"
+    "https://*.netsuite.com/*",
+    "https://bc-sku-lookup.local/*"
   ],
   "background": {
     "service_worker": "background.js",
