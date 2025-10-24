@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "BigCommerce SKU Lookup for NetSuite",
-  "description": "Detects SKUs (itemid) in NetSuite and fetches BigCommerce Product/Variant IDs. Supports encrypted credentials.",
+  "name": "BigCommerce Lookup for NetSuite",
+  "description": "BigCommerce Lookup for NetSuite",
   "version": "1.2.0",
   "icons": {
     "16": "icons/icon16.png",
@@ -26,7 +26,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "BC SKU Lookup",
+    "default_title": "BC Lookup",
     "default_popup": "popup.html"
   },
   "options_page": "options.html",
