@@ -26,7 +26,42 @@ async function readAccountsCookie() {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.filter((entry) => entry && typeof entry === 'object');
+
+    const sanitized = [];
+    let needsRewrite = false;
+
+    parsed.forEach((entry) => {
+      if (!entry || typeof entry !== 'object') {
+        needsRewrite = true;
+        return;
+      }
+      try {
+        const normalized = sanitizeAccountForStorage(entry);
+        sanitized.push(normalized);
+        if (
+          normalized.id !== entry.id
+          || normalized.name !== entry.name
+          || normalized.storeHash !== entry.storeHash
+          || normalized.accessToken !== entry.accessToken
+          || normalized.clientId !== entry.clientId
+        ) {
+          needsRewrite = true;
+        }
+      } catch (error) {
+        console.warn('Skipping invalid account entry', error);
+        needsRewrite = true;
+      }
+    });
+
+    if (needsRewrite) {
+      try {
+        await writeAccountsCookie(sanitized);
+      } catch (error) {
+        console.warn('Failed to rewrite accounts cookie', error);
+      }
+    }
+
+    return sanitized;
   } catch (error) {
     console.warn('Failed to read accounts cookie', error);
     return [];
@@ -66,7 +101,7 @@ function sanitizeAccountForStorage(account) {
 export async function listAccounts() {
   const accounts = await readAccountsCookie();
   return accounts.map((account) => ({
-    id: String(account.id || ''),
+    id: normalizeString(account.id) || String(account.id || ''),
     name: normalizeString(account.name) || 'BigCommerce account',
     storeHash: normalizeString(account.storeHash),
     accessToken: normalizeString(account.accessToken),

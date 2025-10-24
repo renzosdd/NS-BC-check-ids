@@ -1237,8 +1237,10 @@ async function initPopup() {
   }
 
   $('bcViewPayload')?.addEventListener('click', () => { openPayloadViewer(); });
-  applyDetectedFromPage('load');
-};
+
+  await loadAccounts();
+  await applyDetectedFromPage('load');
+}
 
 document.addEventListener('DOMContentLoaded', () => {
   initPopup().catch((error) => {
