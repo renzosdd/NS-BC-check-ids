@@ -426,46 +426,51 @@ function renderOrderSummary(orderData) {
   const netsuiteTranId = orderData?.tranId ?? null;
   const netsuiteInternalId = orderData?.internalId ?? null;
   const netsuiteBcOrderId = orderData?.bcOrderId ?? null;
-  const netsuiteCustomerName = orderData?.customerName ?? null;
 
-  const bcOrderNumber = bcData?.orderNumber ?? null;
-  const bcOrderReference = bcData?.reference ?? null;
   const bcOrderId = bcData?.id ?? null;
-  const comparisonTarget = pickFirstNonEmpty(bcOrderNumber, bcOrderReference, bcOrderId);
+  const bcOrderNumber = bcData?.orderNumber ?? null;
+  const bcReference = bcData?.reference ?? null;
 
-  const orderIdMatchState = bcResult ? determineMatchState(netsuiteBcOrderId, bcOrderNumber || comparisonTarget) : null;
+  const orderIdMatchState = bcResult ? determineMatchState(netsuiteBcOrderId, bcOrderId) : null;
 
-  let orderIdNote = '';
-  if (bcResult && orderIdMatchState === 'mismatch') {
-    const bcParts = [];
-    if (normalizeValue(bcOrderNumber)) bcParts.push(`Order #: <code>${escapeHtml(normalizeValue(bcOrderNumber))}</code>`);
-    if (normalizeValue(bcOrderReference)) bcParts.push(`Reference: <code>${escapeHtml(normalizeValue(bcOrderReference))}</code>`);
-    if (normalizeValue(bcOrderId)) bcParts.push(`ID: <code>${escapeHtml(normalizeValue(bcOrderId))}</code>`);
-    const joined = bcParts.length ? bcParts.join(' · ') : '<code>&mdash;</code>';
-    orderIdNote = `<div class="comparison-note">BigCommerce: ${joined}</div>`;
-  }
-
-  let customerNote = '';
+  let orderNumberMatchState = null;
+  let orderNumberNote;
   if (bcResult) {
-    const customerBits = [];
-    if (normalizeValue(bcData?.customerId)) customerBits.push(`ID: <code>${escapeHtml(normalizeValue(bcData.customerId))}</code>`);
-    if (normalizeValue(bcData?.email)) customerBits.push(`Email: <code>${escapeHtml(normalizeValue(bcData.email))}</code>`);
-    const joined = customerBits.length ? customerBits.join(' · ') : '';
-    if (joined) {
-      customerNote = `<div class="comparison-note">BigCommerce customer · ${joined}</div>`;
+    const nsNormalized = normalizeValue(netsuiteTranId);
+    const bcNumberNormalized = normalizeValue(bcOrderNumber);
+    const bcReferenceNormalized = normalizeValue(bcReference);
+    const hasBcNumber = bcNumberNormalized !== '';
+    const hasBcReference = bcReferenceNormalized !== '';
+    const matchesNumber = nsNormalized !== '' && nsNormalized === bcNumberNormalized;
+    const matchesReference = nsNormalized !== '' && nsNormalized === bcReferenceNormalized;
+
+    if (matchesNumber || matchesReference) {
+      orderNumberMatchState = 'match';
+    } else if (nsNormalized === '') {
+      orderNumberMatchState = (hasBcNumber || hasBcReference) ? 'mismatch' : null;
+    } else if (hasBcNumber || hasBcReference) {
+      orderNumberMatchState = 'mismatch';
+    }
+
+    if (orderNumberMatchState === 'mismatch') {
+      const bcParts = [];
+      if (hasBcNumber) bcParts.push(`Order #: <code>${escapeHtml(bcNumberNormalized)}</code>`);
+      if (hasBcReference) bcParts.push(`Reference: <code>${escapeHtml(bcReferenceNormalized)}</code>`);
+      const joined = bcParts.length ? bcParts.join(' · ') : '<code>&mdash;</code>';
+      orderNumberNote = `<div class="comparison-note">BigCommerce: ${joined}</div>`;
     }
   }
 
-  const nsValues = orderData ? [netsuiteTranId, netsuiteInternalId, netsuiteBcOrderId, netsuiteCustomerName] : [];
+  const nsValues = orderData ? [netsuiteTranId, netsuiteInternalId, netsuiteBcOrderId] : [];
   const nsHasAny = nsValues.some((value) => normalizeValue(value) !== '');
   comparisonSummary.hasNetSuite = nsHasAny;
 
   if (nsRoot) {
     if (nsHasAny || bcResult) {
       const rows = [
-        renderNetSuiteRow('Tran ID', 'ns-order-tranid', netsuiteTranId, null, null),
-        renderNetSuiteRow('Customer', 'ns-order-customer', netsuiteCustomerName, null, null, { note: customerNote }),
-        renderNetSuiteRow('BC Order ID', 'ns-bc-order', netsuiteBcOrderId, bcOrderNumber || comparisonTarget, orderIdMatchState, { note: orderIdNote }),
+        renderNetSuiteRow('Tran ID', 'ns-order-tranid', netsuiteTranId, bcOrderNumber || bcReference, orderNumberMatchState, { note: orderNumberNote }),
+        renderNetSuiteRow('Internal ID', 'ns-order-internal', netsuiteInternalId, null, null),
+        renderNetSuiteRow('BC Order ID', 'ns-bc-order', netsuiteBcOrderId, bcOrderId, orderIdMatchState),
       ];
       nsRoot.innerHTML = rows.join('');
     } else {
@@ -481,6 +486,7 @@ function renderOrderSummary(orderData) {
   let hasComparableValues = false;
   if (bcResult) {
     const comparisons = [
+      { matchState: orderNumberMatchState },
       { matchState: orderIdMatchState },
     ];
     comparisons.forEach(({ matchState }) => {
@@ -504,10 +510,10 @@ function renderOrderSummary(orderData) {
     if (bcResult) {
       if (comparisonSummary.hasComparableValues) {
         summaryMetaText = comparisonSummary.hasDifferences
-          ? 'BigCommerce order number differs from NetSuite BC Order ID.'
-          : 'BigCommerce order number matches the NetSuite BC Order ID.';
+          ? 'BigCommerce differences appear inline below.'
+          : 'All comparable BigCommerce values match NetSuite.';
       } else {
-        summaryMetaText = 'Lookup completed, but the BigCommerce order number was unavailable.';
+        summaryMetaText = 'Lookup completed, but there were no comparable IDs to review.';
       }
       if (bcResult?.source) {
         summaryMetaText += ` · ${bcResult.source}`;
