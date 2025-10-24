@@ -199,9 +199,41 @@ function downloadTabJson(tabId) {
   }
 }
 
+function toggleTabPayload(tabId) {
+  const entry = tabPayloads.get(tabId);
+  if (!entry?.jsonText) {
+    toast('No payload to show');
+    return;
+  }
+  const panel = document.querySelector(`.tab-panel[data-tab="${tabId}"]`);
+  if (!panel) {
+    toast('Payload view unavailable');
+    return;
+  }
+  const view = panel.querySelector('.tab-json');
+  if (!view) {
+    toast('Payload view unavailable');
+    return;
+  }
+  const willShow = view.classList.contains('hidden');
+  view.classList.toggle('hidden', !willShow);
+  document.querySelectorAll(`button[data-action="view"][data-tab="${tabId}"]`).forEach((btn) => {
+    btn.textContent = willShow ? 'Hide payload' : 'View payload';
+    btn.setAttribute('aria-pressed', willShow ? 'true' : 'false');
+  });
+  toast(willShow ? 'Payload visible' : 'Payload hidden');
+}
+
 function renderShippingAddresses(extras) {
   const error = extras?.shippingAddressesError ? `<div class="error">${escapeHtml(extras.shippingAddressesError)}</div>` : '';
   const entries = Array.isArray(extras?.shippingAddresses) ? extras.shippingAddresses : [];
+  if (entries.length > 0) {
+    registerTabPayload('shipping', entries, 'shipping-addresses');
+  } else if (extras?.shippingAddressesError) {
+    registerTabPayload('shipping', { error: extras.shippingAddressesError }, 'shipping-addresses');
+  } else {
+    registerTabPayload('shipping', null);
+  }
   if (entries.length === 0) {
     return `
       <div class="card">
@@ -241,6 +273,13 @@ function renderShippingAddresses(extras) {
 function renderCoupons(extras) {
   const error = extras?.couponsError ? `<div class="error">${escapeHtml(extras.couponsError)}</div>` : '';
   const entries = Array.isArray(extras?.coupons) ? extras.coupons : [];
+  if (entries.length > 0) {
+    registerTabPayload('coupons', entries, 'coupons');
+  } else if (extras?.couponsError) {
+    registerTabPayload('coupons', { error: extras.couponsError }, 'coupons');
+  } else {
+    registerTabPayload('coupons', null);
+  }
   if (entries.length === 0) {
     return `
       <div class="card">
@@ -276,8 +315,15 @@ function renderCoupons(extras) {
 function renderOrderProducts(extras) {
   const error = extras?.productsError ? `<div class="error">${escapeHtml(extras.productsError)}</div>` : '';
   const entries = Array.isArray(extras?.products) ? extras.products : [];
+  const payload = extras?.productsError
+    ? { error: extras.productsError, products: entries }
+    : entries;
   if (entries.length === 0) {
-    if (!error) return '';
+    if (!error) {
+      registerTabPayload('products', null);
+      return '';
+    }
+    registerTabPayload('products', payload, 'order-products');
     return `
       <div class="card">
         <div class="card-title">Products</div>
@@ -285,6 +331,7 @@ function renderOrderProducts(extras) {
       </div>
     `;
   }
+  registerTabPayload('products', payload, 'order-products');
   const listItems = entries.map((product, index) => {
     const heading = product.name ? escapeHtml(product.name) : `Product ${index + 1}`;
     const kvs = [
@@ -323,6 +370,13 @@ function renderOrderProducts(extras) {
 function renderMetafields(extras) {
   const error = extras?.metafieldsError ? `<div class="error">${escapeHtml(extras.metafieldsError)}</div>` : '';
   const entries = Array.isArray(extras?.metafields) ? extras.metafields : [];
+  if (entries.length > 0) {
+    registerTabPayload('metafields', entries, 'metafields');
+  } else if (extras?.metafieldsError) {
+    registerTabPayload('metafields', { error: extras.metafieldsError }, 'metafields');
+  } else {
+    registerTabPayload('metafields', null);
+  }
   if (entries.length === 0) {
     return `
       <div class="card">
@@ -367,6 +421,13 @@ function renderVariantsTab(result) {
   const rawVariant = result?.raw && typeof result.raw === 'object' ? (result.raw.variant || null) : null;
   if (variants.length === 0 && rawVariant) {
     variants = [rawVariant];
+  }
+  if (variants.length > 0) {
+    registerTabPayload('variants', variants, 'variants');
+  } else if (extras?.variantsError) {
+    registerTabPayload('variants', { error: extras.variantsError }, 'variants');
+  } else {
+    registerTabPayload('variants', null);
   }
   if (variants.length === 0 && !error) {
     return '';
@@ -435,7 +496,9 @@ function handleTabActionClick(event) {
   const action = target.getAttribute('data-action');
   const tabId = target.getAttribute('data-tab');
   if (!action || !tabId) return;
-  if (action === 'copy') {
+  if (action === 'view') {
+    toggleTabPayload(tabId);
+  } else if (action === 'copy') {
     copyTabJson(tabId);
   } else if (action === 'download') {
     downloadTabJson(tabId);
@@ -480,12 +543,16 @@ function buildTabs(result) {
     <button class="tab-button" role="tab" data-tab="${escapeHtml(tab.id)}" aria-selected="${index === 0 ? 'true' : 'false'}">${escapeHtml(tab.label)}</button>
   `).join('');
   tabPanels.innerHTML = tabs.map((tab, index) => {
-    const hasPayload = tabPayloads.has(tab.id);
-    const actions = hasPayload
-      ? `<div class="tab-actions"><button class="secondary" data-action="copy" data-tab="${escapeHtml(tab.id)}">Copy JSON</button><button class="secondary" data-action="download" data-tab="${escapeHtml(tab.id)}">Download JSON</button></div>`
+    const payloadEntry = tabPayloads.get(tab.id);
+    const hasJson = !!payloadEntry?.jsonText;
+    const actions = hasJson
+      ? `<div class="tab-actions"><button class="secondary" data-action="view" data-tab="${escapeHtml(tab.id)}" aria-pressed="false">View payload</button><button class="secondary" data-action="copy" data-tab="${escapeHtml(tab.id)}">Copy JSON</button><button class="secondary" data-action="download" data-tab="${escapeHtml(tab.id)}">Download JSON</button></div>`
+      : '';
+    const payloadBlock = hasJson
+      ? `<div class="tab-json hidden" data-tab="${escapeHtml(tab.id)}"><pre class="json" aria-label="${escapeHtml(tab.label)} payload">${escapeHtml(payloadEntry.jsonText)}</pre></div>`
       : '';
     return `
-      <div class="tab-panel${index === 0 ? ' active' : ''}" role="tabpanel" data-tab="${escapeHtml(tab.id)}">${actions}${tab.content}</div>
+      <div class="tab-panel${index === 0 ? ' active' : ''}" role="tabpanel" data-tab="${escapeHtml(tab.id)}">${actions}${payloadBlock}${tab.content}</div>
     `;
   }).join('');
   tabList.querySelectorAll('.tab-button').forEach((btn) => {
