@@ -1,7 +1,6 @@
 const COOKIE_URL = 'https://bc-sku-lookup.local/';
 const COOKIE_NAME = 'bc_accounts_v1';
 const ACTIVE_ACCOUNT_KEY = 'bc_active_account_id';
-const COOKIE_STORAGE_KEY = 'bc_accounts_v1_storage';
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 10; // 10 years
 
 function normalizeString(value) {
@@ -34,49 +33,19 @@ async function readAccountsCookie() {
   }
 }
 
-async function readAccountsFromStorage() {
-  const stored = await chrome.storage.local.get({ [COOKIE_STORAGE_KEY]: [] });
-  const list = stored[COOKIE_STORAGE_KEY];
-  if (!Array.isArray(list)) {
-    return [];
-  }
-  return list.filter((entry) => entry && typeof entry === 'object');
-}
-
 async function writeAccountsCookie(accounts) {
   const sanitized = Array.isArray(accounts) ? accounts.filter((entry) => entry && typeof entry === 'object') : [];
   const encoded = encodeURIComponent(JSON.stringify(sanitized));
   const expirationDate = Math.floor(Date.now() / 1000) + COOKIE_MAX_AGE_SECONDS;
-  try {
-    await chrome.cookies.set({
-      url: COOKIE_URL,
-      name: COOKIE_NAME,
-      value: encoded,
-      expirationDate,
-      secure: true,
-      sameSite: 'strict',
-    });
-  } catch (error) {
-    console.warn('Failed to persist accounts cookie', error);
-  }
-  await chrome.storage.local.set({ [COOKIE_STORAGE_KEY]: sanitized });
+  await chrome.cookies.set({
+    url: COOKIE_URL,
+    name: COOKIE_NAME,
+    value: encoded,
+    expirationDate,
+    secure: true,
+    sameSite: 'strict',
+  });
   return sanitized;
-}
-
-async function readAccounts() {
-  const accountsFromCookie = await readAccountsCookie();
-  if (accountsFromCookie.length > 0) {
-    await chrome.storage.local.set({ [COOKIE_STORAGE_KEY]: accountsFromCookie });
-    return accountsFromCookie;
-  }
-
-  const fromStorage = await readAccountsFromStorage();
-  if (fromStorage.length > 0) {
-    await writeAccountsCookie(fromStorage);
-    return fromStorage;
-  }
-
-  return [];
 }
 
 function sanitizeAccountForStorage(account) {
@@ -95,7 +64,7 @@ function sanitizeAccountForStorage(account) {
 }
 
 export async function listAccounts() {
-  const accounts = await readAccounts();
+  const accounts = await readAccountsCookie();
   return accounts.map((account) => ({
     id: String(account.id || ''),
     name: normalizeString(account.name) || 'BigCommerce account',
@@ -186,11 +155,6 @@ export function formatAccountLabel(account) {
 }
 
 export async function clearAccounts() {
-  try {
-    await chrome.cookies.remove({ url: COOKIE_URL, name: COOKIE_NAME });
-  } catch (error) {
-    console.warn('Failed to clear accounts cookie', error);
-  }
+  await chrome.cookies.remove({ url: COOKIE_URL, name: COOKIE_NAME });
   await setActiveAccountId(null);
-  await chrome.storage.local.remove(COOKIE_STORAGE_KEY);
 }
