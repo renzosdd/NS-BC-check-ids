@@ -289,15 +289,18 @@ async function fetchProductMetafields(cfg, productId) {
 }
 
 async function buildOrderExtras(baseUrl, headers, orderId) {
-  const [shipping, coupons] = await Promise.all([
+  const [shipping, coupons, products] = await Promise.all([
     fetchOrderRelatedCollection(baseUrl, headers, orderId, 'shipping_addresses'),
     fetchOrderRelatedCollection(baseUrl, headers, orderId, 'coupons'),
+    fetchOrderRelatedCollection(baseUrl, headers, orderId, 'products'),
   ]);
   return {
     shippingAddresses: shipping.entries,
     shippingAddressesError: shipping.error || null,
     coupons: coupons.entries,
     couponsError: coupons.error || null,
+    products: products.entries,
+    productsError: products.error || null,
   };
 }
 
@@ -366,6 +369,54 @@ async function bcLookupItem(cfg, request) {
     throw new Error(`SKU "${sku}" not found in BigCommerce.`);
   }
 
+  let productDetails = null;
+  let variantDetails = null;
+  if (candidate.raw && typeof candidate.raw === "object") {
+    if (candidate.raw.product || candidate.raw.variant) {
+      productDetails = candidate.raw.product || null;
+      variantDetails = candidate.raw.variant || null;
+    } else {
+      variantDetails = candidate.raw;
+    }
+  }
+
+  let variantsError = null;
+  if (!productDetails && candidate.productId) {
+    try {
+      const productUrl = `${base}/catalog/products/${encodeURIComponent(candidate.productId)}?include=variants`;
+      const productResponse = await fetch(productUrl, { headers });
+      if (!productResponse.ok) {
+        const text = await productResponse.text();
+        variantsError = buildError("Error fetching product", `${productResponse.status} ${text}`);
+      } else {
+        const productJson = await productResponse.json();
+        if (productJson && typeof productJson === "object") {
+          productDetails = productJson.data || null;
+        }
+      }
+    } catch (e) {
+      variantsError = buildError("Error fetching product", String(e));
+    }
+  }
+
+  let variantsList = [];
+  if (productDetails && Array.isArray(productDetails.variants)) {
+    variantsList = productDetails.variants.slice();
+  }
+
+  if (!variantDetails && candidate.variantId != null) {
+    const matched = variantsList.find(entry => String(entry.id) === String(candidate.variantId));
+    if (matched) variantDetails = matched;
+  }
+
+  if (productDetails && !candidate.productName) {
+    candidate.productName = productDetails.name ?? candidate.productName ?? null;
+  }
+
+  if (productDetails || variantDetails) {
+    candidate.raw = { product: productDetails || null, variant: variantDetails || null };
+  }
+
   const metafieldsInfo = await fetchProductMetafields(cfg, candidate.productId);
   return normalizeItemResult({
     source: candidate.source,
@@ -378,6 +429,10 @@ async function bcLookupItem(cfg, request) {
     extras: {
       metafields: metafieldsInfo.entries,
       metafieldsError: metafieldsInfo.error || null,
+      variants: variantsList,
+      variantsError,
+      parentProductId: productDetails?.id ?? candidate.productId ?? null,
+      parentProductName: productDetails?.name ?? candidate.productName ?? null,
     },
   });
 }

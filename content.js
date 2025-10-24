@@ -195,6 +195,16 @@ function getFieldCandidates(field){
 }
 function pickFieldValue(field){ const vals=getFieldCandidates(field); return vals.length?vals[0]:null; }
 
+function pickFirstFieldValue(){
+  for(let i=0;i<arguments.length;i+=1){
+    const field=arguments[i];
+    if(!field) continue;
+    const value=pickFieldValue(field);
+    if(value) return value;
+  }
+  return null;
+}
+
 function detectRecordType(){
   try{
     const heading=document.querySelector('h1.uir-record-type');
@@ -242,10 +252,19 @@ function gatherOrderPayload(){
   const internalId=pickFieldValue("id");
   const tranId=pickFieldValue("tranid");
   const bcOrderId=pickFieldValue("custbody_tt_bc_order_id");
+  const customerName=pickFirstFieldValue(
+    "entityname",
+    "entity_display",
+    "entity",
+    "customer",
+    "custbody_customer_name",
+    "custbody_customer"
+  );
   return {
     internalId: internalId||null,
     tranId: tranId||null,
-    bcOrderId: bcOrderId||null
+    bcOrderId: bcOrderId||null,
+    customerName: customerName||null
   };
 }
 
@@ -299,7 +318,8 @@ function orderDataEquals(a,b){
   if(!a||!b) return false;
   return (a.internalId||null)===(b.internalId||null)
     && (a.tranId||null)===(b.tranId||null)
-    && (a.bcOrderId||null)===(b.bcOrderId||null);
+    && (a.bcOrderId||null)===(b.bcOrderId||null)
+    && (a.customerName||null)===(b.customerName||null);
 }
 
 function customerDataEquals(a,b){
@@ -329,7 +349,7 @@ function hasDetectionData(payload){
   const { type, data } = payload;
   if(!data) return false;
   if(type==="order"){
-    return !!(data.internalId||data.tranId||data.bcOrderId);
+    return !!(data.internalId||data.tranId||data.bcOrderId||data.customerName);
   }
   if(type==="customer"){
     return !!(data.internalId||data.entityId||data.email||data.bcCustomerId);

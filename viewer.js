@@ -98,6 +98,15 @@ function renderOverview(result) {
       renderKeyValue('Variant ID', data.bcVariantId),
       renderKeyValue('Product name', data.productName),
     ];
+    const parentId = normalizeValue(result?.extras?.parentProductId);
+    const parentName = normalizeValue(result?.extras?.parentProductName);
+    const isVariant = normalizeValue(data.bcVariantId) !== '';
+    if (isVariant && parentId) {
+      rows.push(renderKeyValue('Parent product ID', parentId));
+    }
+    if (isVariant && parentName) {
+      rows.push(renderKeyValue('Parent product name', parentName));
+    }
   }
   const requestInfo = result?.request && typeof result.request === 'object'
     ? Object.entries(result.request)
@@ -202,6 +211,53 @@ function renderCoupons(extras) {
   `;
 }
 
+function renderOrderProducts(extras) {
+  const error = extras?.productsError ? `<div class="error">${escapeHtml(extras.productsError)}</div>` : '';
+  const entries = Array.isArray(extras?.products) ? extras.products : [];
+  if (entries.length === 0) {
+    if (!error) return '';
+    return `
+      <div class="card">
+        <div class="card-title">Products</div>
+        ${error}
+      </div>
+    `;
+  }
+  const listItems = entries.map((product, index) => {
+    const heading = product.name ? escapeHtml(product.name) : `Product ${index + 1}`;
+    const kvs = [
+      renderKeyValue('Product ID', product.product_id),
+      renderKeyValue('Variant ID', product.variant_id),
+      renderKeyValue('SKU', product.sku),
+      renderKeyValue('Quantity', product.quantity),
+      renderKeyValue('Price (inc tax)', product.price_inc_tax ?? product.base_price),
+      renderKeyValue('Total (inc tax)', product.total_inc_tax ?? product.total_ex_tax),
+    ];
+    const optionTags = Array.isArray(product.product_options) && product.product_options.length > 0
+      ? product.product_options.map((option) => {
+        const label = option.display_name || option.option_display_name || option.name || 'Option';
+        const value = option.display_value || option.value || '';
+        return `<span class="pill">${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
+      }).join(' ')
+      : '';
+    const optionsBlock = optionTags ? `<div class="pill-row">${optionTags}</div>` : '';
+    return `
+      <div class="list-item">
+        <h3>${heading}</h3>
+        ${optionsBlock}
+        <div class="kv-grid">${kvs.join('')}</div>
+      </div>
+    `;
+  }).join('');
+  return `
+    <div class="card">
+      <div class="card-title">Products</div>
+      ${error}
+      <div class="list">${listItems}</div>
+    </div>
+  `;
+}
+
 function renderMetafields(extras) {
   const error = extras?.metafieldsError ? `<div class="error">${escapeHtml(extras.metafieldsError)}</div>` : '';
   const entries = Array.isArray(extras?.metafields) ? extras.metafields : [];
@@ -239,6 +295,64 @@ function renderMetafields(extras) {
   `;
 }
 
+function renderVariantsTab(result) {
+  const extras = result?.extras || {};
+  const error = extras?.variantsError ? `<div class="error">${escapeHtml(extras.variantsError)}</div>` : '';
+  const parentId = extras?.parentProductId ?? result?.data?.bcProductId ?? null;
+  const parentName = extras?.parentProductName ?? null;
+  const selectedVariantId = normalizeValue(result?.data?.bcVariantId);
+  let variants = Array.isArray(extras?.variants) ? extras.variants.slice() : [];
+  const rawVariant = result?.raw && typeof result.raw === 'object' ? (result.raw.variant || null) : null;
+  if (variants.length === 0 && rawVariant) {
+    variants = [rawVariant];
+  }
+  if (variants.length === 0 && !error) {
+    return '';
+  }
+  const isVariant = selectedVariantId !== '';
+  const parentItems = [];
+  if (isVariant && parentId) parentItems.push(renderKeyValue('Parent product ID', parentId));
+  if (isVariant && parentName) parentItems.push(renderKeyValue('Parent product name', parentName));
+  const parentBlock = parentItems.length ? `<div class="kv-grid parent-summary">${parentItems.join('')}</div>` : '';
+  const listItems = variants.map((variant, index) => {
+    const variantId = normalizeValue(variant?.id);
+    const isCurrent = selectedVariantId !== '' && variantId === selectedVariantId;
+    const titleParts = [];
+    if (variant?.sku) titleParts.push(escapeHtml(variant.sku));
+    if (variantId) titleParts.push(`<code>${escapeHtml(variantId)}</code>`);
+    const heading = titleParts.length ? titleParts.join(' · ') : `Variant ${index + 1}`;
+    const kvs = [
+      renderKeyValue('Variant ID', variant?.id),
+      renderKeyValue('SKU', variant?.sku),
+      renderKeyValue('Price', variant?.price ?? variant?.price_inc_tax ?? variant?.calculated_price),
+      renderKeyValue('Inventory', variant?.inventory_level ?? variant?.inventory_level_value),
+    ];
+    const optionTags = Array.isArray(variant?.option_values) && variant.option_values.length > 0
+      ? variant.option_values.map((opt) => {
+        const label = opt.option_display_name || opt.display_name || opt.label || 'Option';
+        const value = opt.label || opt.value || opt.option_value || '';
+        return `<span class="pill">${escapeHtml(label)}: ${escapeHtml(value)}</span>`;
+      }).join(' ')
+      : '';
+    const optionsBlock = optionTags ? `<div class="pill-row">${optionTags}</div>` : '';
+    return `
+      <div class="list-item${isCurrent ? ' active-variant' : ''}">
+        <h3>${heading}</h3>
+        ${optionsBlock}
+        <div class="kv-grid">${kvs.join('')}</div>
+      </div>
+    `;
+  }).join('');
+  return `
+    <div class="card">
+      <div class="card-title">Variants</div>
+      ${parentBlock}
+      ${error}
+      ${listItems ? `<div class="list">${listItems}</div>` : ''}
+    </div>
+  `;
+}
+
 function selectTab(id) {
   const buttons = document.querySelectorAll('.tab-button');
   const panels = document.querySelectorAll('.tab-panel');
@@ -263,9 +377,22 @@ function buildTabs(result) {
   const extras = result?.extras || {};
   if ((result?.recordType || '').toLowerCase() === 'order') {
     tabs.push({ id: 'shipping', label: 'Shipping addresses', content: renderShippingAddresses(extras) });
-    tabs.push({ id: 'coupons', label: 'Coupons', content: renderCoupons(extras) });
+    const productsContent = renderOrderProducts(extras);
+    if (productsContent) {
+      tabs.push({ id: 'products', label: 'Products', content: productsContent });
+    }
+    const couponsEntries = Array.isArray(extras?.coupons) ? extras.coupons : [];
+    if (couponsEntries.length > 0 || extras?.couponsError) {
+      tabs.push({ id: 'coupons', label: 'Coupons', content: renderCoupons(extras) });
+    }
   }
   if ((result?.recordType || '').toLowerCase() === 'item') {
+    const hasVariants = (Array.isArray(extras?.variants) && extras.variants.length > 0)
+      || !!extras?.variantsError
+      || !!(result?.raw && typeof result.raw === 'object' && (result.raw.variant || result.raw.id));
+    if (hasVariants) {
+      tabs.push({ id: 'variants', label: 'Variants', content: renderVariantsTab(result) });
+    }
     tabs.push({ id: 'metafields', label: 'Metafields', content: renderMetafields(extras) });
   }
   tabList.innerHTML = tabs.map((tab, index) => `
