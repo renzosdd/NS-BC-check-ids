@@ -1,13 +1,19 @@
-import { decryptJSON } from "./crypto.js";
+import {
+  ensureActiveAccount,
+  getActiveAccount,
+  getActiveAccountId,
+  getAccountById,
+  listAccountSummaries,
+  removeAccount,
+  setActiveAccountId,
+  upsertAccount,
+} from "./account-store.js";
 
-let unlockedCreds = null;
-let lastUseTs = 0;
-const IDLE_MS = 15 * 60 * 1000; // 15 minutes
 const lastDetectedByTab = new Map();
-const LOCK_BADGE_TEXT = "🔒";
-const UNLOCK_BADGE_TEXT = "✅";
+const READY_BADGE_TEXT = "✅";
+const MISSING_BADGE_TEXT = "⚠️";
 const BADGE_COLORS = {
-  locked: "#5F6368",
+  missing: "#EA4335",
   noDetection: "#34A853",
   detectedSingle: "#1A73E8",
   detectedMultiple: "#9334E6",
@@ -37,18 +43,27 @@ function getDetectedSkuCount(payload) {
   return payload.sku ? 1 : 0;
 }
 
-function badgeColorForState(locked, detectedCount) {
-  if (locked) return BADGE_COLORS.locked;
+async function accountAvailable() {
+  try {
+    const account = await getActiveAccount();
+    return !!(account && account.storeHash && account.accessToken);
+  } catch (e) {
+    return false;
+  }
+}
+
+function badgeColorForState(hasAccount, detectedCount) {
+  if (!hasAccount) return BADGE_COLORS.missing;
   if (detectedCount > 1) return BADGE_COLORS.detectedMultiple;
   if (detectedCount === 1) return BADGE_COLORS.detectedSingle;
   return BADGE_COLORS.noDetection;
 }
 
-async function applyBadgeToTab(tabId, locked, detectedCount) {
-  const text = locked ? LOCK_BADGE_TEXT : UNLOCK_BADGE_TEXT;
-  const color = badgeColorForState(locked, detectedCount);
+async function applyBadgeToTab(tabId, hasAccount, detectedCount) {
+  const text = hasAccount ? READY_BADGE_TEXT : MISSING_BADGE_TEXT;
+  const color = badgeColorForState(hasAccount, detectedCount);
   const descriptor = [
-    locked ? "Credentials locked" : "Credentials unlocked",
+    hasAccount ? "Account configured" : "No account configured",
     detectedCount > 0 ? `${detectedCount} SKU${detectedCount === 1 ? "" : "s"} detected` : "No SKU detected",
   ].join(" · ");
   const updates = [
@@ -59,19 +74,18 @@ async function applyBadgeToTab(tabId, locked, detectedCount) {
   await Promise.all(updates);
 }
 
-async function refreshBadgeForTab(tabId, lockedOverride) {
+async function refreshBadgeForTab(tabId, hasAccountOverride) {
   if (tabId == null) return;
-  let locked;
-  if (typeof lockedOverride === "boolean") {
-    locked = lockedOverride;
+  let hasAccount;
+  if (typeof hasAccountOverride === "boolean") {
+    hasAccount = hasAccountOverride;
   } else {
-    ensureNotIdle();
-    locked = !unlockedCreds;
+    hasAccount = await accountAvailable();
   }
   const payload = lastDetectedByTab.get(tabId) || null;
   const detectedCount = getDetectedSkuCount(payload);
   try {
-    await applyBadgeToTab(tabId, locked, detectedCount);
+    await applyBadgeToTab(tabId, hasAccount, detectedCount);
   } catch (e) {
     // Tab might have gone away; make sure we don't leak detection state.
     lastDetectedByTab.delete(tabId);
@@ -79,17 +93,16 @@ async function refreshBadgeForTab(tabId, lockedOverride) {
 }
 
 async function refreshAllBadges() {
-  ensureNotIdle();
-  const locked = !unlockedCreds;
-  const text = locked ? LOCK_BADGE_TEXT : UNLOCK_BADGE_TEXT;
-  const color = badgeColorForState(locked, 0);
+  const hasAccount = await accountAvailable();
+  const text = hasAccount ? READY_BADGE_TEXT : MISSING_BADGE_TEXT;
+  const color = badgeColorForState(hasAccount, 0);
   await Promise.all([
     chrome.action.setBadgeText({ text }).catch(() => {}),
     chrome.action.setBadgeBackgroundColor({ color }).catch(() => {}),
-    chrome.action.setTitle({ title: locked ? "BC SKU Lookup — Credentials locked" : "BC SKU Lookup — Credentials unlocked" }).catch(() => {}),
+    chrome.action.setTitle({ title: hasAccount ? "BC SKU Lookup — Account configured" : "BC SKU Lookup — No account configured" }).catch(() => {}),
   ]);
   const tabIds = Array.from(lastDetectedByTab.keys());
-  await Promise.all(tabIds.map(tabId => refreshBadgeForTab(tabId, locked)));
+  await Promise.all(tabIds.map(tabId => refreshBadgeForTab(tabId, hasAccount)));
 }
 
 function scheduleBadgeRefreshForTab(tabId) {
@@ -99,33 +112,6 @@ function scheduleBadgeRefreshForTab(tabId) {
 
 function scheduleBadgeRefreshAll() {
   refreshAllBadges().catch(() => {});
-}
-
-async function getEncrypted() {
-  const defaults = { bc_encrypted: null };
-  return new Promise(resolve => chrome.storage.local.get(defaults, resolve));
-}
-
-async function setUnlocked(creds) {
-  unlockedCreds = creds;
-  lastUseTs = Date.now();
-  await refreshAllBadges();
-}
-
-function ensureNotIdle() {
-  if (unlockedCreds && Date.now() - lastUseTs > IDLE_MS) {
-    unlockedCreds = null;
-    setTimeout(scheduleBadgeRefreshAll, 0);
-  }
-}
-
-async function getSettingsUnlocked() {
-  ensureNotIdle();
-  if (unlockedCreds) {
-    lastUseTs = Date.now();
-    return unlockedCreds;
-  }
-  throw new Error("LOCKED");
 }
 
 function authHeaders(cfg) {
@@ -260,8 +246,16 @@ async function fetchOrderRelatedCollection(baseUrl, headers, orderId, resource) 
       const text = await response.text();
       return { entries: [], error: buildError(`Error fetching order ${resource}`, `${response.status} ${text}`) };
     }
-    const data = await response.json();
-    return { entries: Array.isArray(data) ? data : [] };
+    const text = await response.text();
+    if (!text) {
+      return { entries: [] };
+    }
+    try {
+      const data = JSON.parse(text);
+      return { entries: Array.isArray(data) ? data : [] };
+    } catch (e) {
+      return { entries: [], error: buildError(`Error fetching order ${resource}`, `Invalid JSON response: ${e}`) };
+    }
   } catch (e) {
     return { entries: [], error: buildError(`Error fetching order ${resource}`, String(e)) };
   }
@@ -289,15 +283,18 @@ async function fetchProductMetafields(cfg, productId) {
 }
 
 async function buildOrderExtras(baseUrl, headers, orderId) {
-  const [shipping, coupons] = await Promise.all([
+  const [shipping, coupons, products] = await Promise.all([
     fetchOrderRelatedCollection(baseUrl, headers, orderId, 'shipping_addresses'),
     fetchOrderRelatedCollection(baseUrl, headers, orderId, 'coupons'),
+    fetchOrderRelatedCollection(baseUrl, headers, orderId, 'products'),
   ]);
   return {
     shippingAddresses: shipping.entries,
     shippingAddressesError: shipping.error || null,
     coupons: coupons.entries,
     couponsError: coupons.error || null,
+    products: products.entries,
+    productsError: products.error || null,
   };
 }
 
@@ -366,6 +363,54 @@ async function bcLookupItem(cfg, request) {
     throw new Error(`SKU "${sku}" not found in BigCommerce.`);
   }
 
+  let productDetails = null;
+  let variantDetails = null;
+  if (candidate.raw && typeof candidate.raw === "object") {
+    if (candidate.raw.product || candidate.raw.variant) {
+      productDetails = candidate.raw.product || null;
+      variantDetails = candidate.raw.variant || null;
+    } else {
+      variantDetails = candidate.raw;
+    }
+  }
+
+  let variantsError = null;
+  if (!productDetails && candidate.productId) {
+    try {
+      const productUrl = `${base}/catalog/products/${encodeURIComponent(candidate.productId)}?include=variants`;
+      const productResponse = await fetch(productUrl, { headers });
+      if (!productResponse.ok) {
+        const text = await productResponse.text();
+        variantsError = buildError("Error fetching product", `${productResponse.status} ${text}`);
+      } else {
+        const productJson = await productResponse.json();
+        if (productJson && typeof productJson === "object") {
+          productDetails = productJson.data || null;
+        }
+      }
+    } catch (e) {
+      variantsError = buildError("Error fetching product", String(e));
+    }
+  }
+
+  let variantsList = [];
+  if (productDetails && Array.isArray(productDetails.variants)) {
+    variantsList = productDetails.variants.slice();
+  }
+
+  if (!variantDetails && candidate.variantId != null) {
+    const matched = variantsList.find(entry => String(entry.id) === String(candidate.variantId));
+    if (matched) variantDetails = matched;
+  }
+
+  if (productDetails && !candidate.productName) {
+    candidate.productName = productDetails.name ?? candidate.productName ?? null;
+  }
+
+  if (productDetails || variantDetails) {
+    candidate.raw = { product: productDetails || null, variant: variantDetails || null };
+  }
+
   const metafieldsInfo = await fetchProductMetafields(cfg, candidate.productId);
   return normalizeItemResult({
     source: candidate.source,
@@ -378,6 +423,10 @@ async function bcLookupItem(cfg, request) {
     extras: {
       metafields: metafieldsInfo.entries,
       metafieldsError: metafieldsInfo.error || null,
+      variants: variantsList,
+      variantsError,
+      parentProductId: productDetails?.id ?? candidate.productId ?? null,
+      parentProductName: productDetails?.name ?? candidate.productName ?? null,
     },
   });
 }
@@ -474,8 +523,7 @@ async function bcLookupCustomer(cfg, request) {
 
 async function bcLookup(rawRequest) {
   const request = normalizeLookupRequest(rawRequest);
-  const cfg = await getSettingsUnlocked();
-  if (!cfg.storeHash || !cfg.accessToken) throw new Error("Incomplete configuration. Unlock in Options.");
+  const cfg = await ensureActiveAccount();
 
   let result;
   if (request.recordType === "order") {
@@ -568,21 +616,36 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg?.type === "bc-lookup") {
         const data = await bcLookup(msg);
         sendResponse({ ok: true, data });
-      } else if (msg?.type === "unlock-creds") {
-        // msg.bundle (encrypted), msg.passphrase
-        const { bc_encrypted } = await getEncrypted();
-        const bundle = msg.bundle || bc_encrypted;
-        if (!bundle) throw new Error("No credentials saved.");
-        const creds = await decryptJSON(bundle, msg.passphrase);
-        await setUnlocked(creds);
-        sendResponse({ ok: true });
-      } else if (msg?.type === "lock-creds") {
-        unlockedCreds = null;
+      } else if (msg?.type === "account:get-list") {
+        const [accounts, activeAccountId] = await Promise.all([
+          listAccountSummaries(),
+          getActiveAccountId(),
+        ]);
+        sendResponse({ ok: true, accounts, activeAccountId });
+      } else if (msg?.type === "account:get") {
+        const account = await getAccountById(msg?.id);
+        sendResponse({ ok: true, account: account || null });
+      } else if (msg?.type === "account:save") {
+        const saved = await upsertAccount(msg?.account || {});
+        const activeId = await getActiveAccountId();
+        const shouldActivate = msg?.activate === true || !activeId;
+        if (shouldActivate) {
+          await setActiveAccountId(saved.id);
+        }
+        await refreshAllBadges();
+        sendResponse({ ok: true, account: saved, activeAccountId: shouldActivate ? saved.id : activeId });
+      } else if (msg?.type === "account:delete") {
+        const removed = await removeAccount(msg?.id);
+        await refreshAllBadges();
+        const [accounts, activeAccountId] = await Promise.all([
+          listAccountSummaries(),
+          getActiveAccountId(),
+        ]);
+        sendResponse({ ok: removed, accounts, activeAccountId });
+      } else if (msg?.type === "account:set-active") {
+        await setActiveAccountId(msg?.id || null);
         await refreshAllBadges();
         sendResponse({ ok: true });
-      } else if (msg?.type === "status-creds") {
-        ensureNotIdle();
-        sendResponse({ ok: true, unlocked: !!unlockedCreds, idleMs: unlockedCreds ? (Date.now()-lastUseTs) : null, idleLimitMs: IDLE_MS });
       }
     } catch (e) {
       sendResponse({ ok: false, error: String(e) });
