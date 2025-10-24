@@ -315,9 +315,11 @@ function determineMatchState(netsuiteValue, bcValue) {
 }
 
 function renderNetSuiteRow(label, id, nsValue, bcValue, matchState, options = {}) {
-  const { copy = false, highlight = false } = options;
+  const { copy = false, highlight = false, note: customNote } = options;
   let note = '';
-  if (matchState === 'mismatch') {
+  if (customNote !== undefined) {
+    note = customNote || '';
+  } else if (matchState === 'mismatch') {
     const bcNormalized = normalizeValue(bcValue);
     const bcDisplay = bcNormalized !== '' ? escapeHtml(bcNormalized) : '&mdash;';
     note = `<div class="comparison-note">BigCommerce: <code>${bcDisplay}</code></div>`;
@@ -354,8 +356,8 @@ function renderItemSummary(itemData) {
   if (nsRoot) {
     if (nsHasAny || bcResult) {
       const rows = [
-        renderNetSuiteRow('SKU', 'ns-sku', netsuiteSku, bcSku, skuMatchState),
-        renderNetSuiteRow('Internal ID', 'ns-internal', netsuiteInternalId, null, null),
+        renderNetSuiteRow('SKU', 'ns-item-sku', netsuiteSku, bcSku, skuMatchState),
+        renderNetSuiteRow('Internal ID', 'ns-item-internal', netsuiteInternalId, null, null),
         renderNetSuiteRow('BC Product ID', 'ns-bc-product', netsuiteBcProductId, bcProductId, productMatchState),
         renderNetSuiteRow('BC Variant ID', 'ns-bc-variant', netsuiteBcVariantId, bcVariantId, variantMatchState),
       ];
@@ -366,7 +368,7 @@ function renderItemSummary(itemData) {
   }
 
   if (nsMeta) {
-    nsMeta.textContent = nsHasAny ? 'NetSuite IDs detected.' : 'Waiting for detected data.';
+    nsMeta.textContent = nsHasAny ? 'NetSuite item data detected.' : 'Waiting for detected data.';
   }
 
   let hasDifferences = false;
@@ -413,11 +415,210 @@ function renderItemSummary(itemData) {
   return { comparisonSummary, summaryMetaText };
 }
 
+function renderOrderSummary(orderData) {
+  const nsRoot = $('orderSummary');
+  const nsMeta = $('orderMeta');
+  const summaryMeta = $('summaryMeta');
+
+  const comparisonSummary = createEmptyComparisonSummary();
+  const bcResult = (lastSearchResult?.recordType === 'order') ? lastSearchResult : null;
+  const bcData = bcResult?.data || null;
+
+  const netsuiteTranId = orderData?.tranId ?? null;
+  const netsuiteInternalId = orderData?.internalId ?? null;
+  const netsuiteBcOrderId = orderData?.bcOrderId ?? null;
+
+  const bcOrderId = bcData?.id ?? null;
+  const bcOrderNumber = bcData?.orderNumber ?? null;
+  const bcReference = bcData?.reference ?? null;
+
+  const orderIdMatchState = bcResult ? determineMatchState(netsuiteBcOrderId, bcOrderId) : null;
+
+  let orderNumberMatchState = null;
+  let orderNumberNote;
+  if (bcResult) {
+    const nsNormalized = normalizeValue(netsuiteTranId);
+    const bcNumberNormalized = normalizeValue(bcOrderNumber);
+    const bcReferenceNormalized = normalizeValue(bcReference);
+    const hasBcNumber = bcNumberNormalized !== '';
+    const hasBcReference = bcReferenceNormalized !== '';
+    const matchesNumber = nsNormalized !== '' && nsNormalized === bcNumberNormalized;
+    const matchesReference = nsNormalized !== '' && nsNormalized === bcReferenceNormalized;
+
+    if (matchesNumber || matchesReference) {
+      orderNumberMatchState = 'match';
+    } else if (nsNormalized === '') {
+      orderNumberMatchState = (hasBcNumber || hasBcReference) ? 'mismatch' : null;
+    } else if (hasBcNumber || hasBcReference) {
+      orderNumberMatchState = 'mismatch';
+    }
+
+    if (orderNumberMatchState === 'mismatch') {
+      const bcParts = [];
+      if (hasBcNumber) bcParts.push(`Order #: <code>${escapeHtml(bcNumberNormalized)}</code>`);
+      if (hasBcReference) bcParts.push(`Reference: <code>${escapeHtml(bcReferenceNormalized)}</code>`);
+      const joined = bcParts.length ? bcParts.join(' · ') : '<code>&mdash;</code>';
+      orderNumberNote = `<div class="comparison-note">BigCommerce: ${joined}</div>`;
+    }
+  }
+
+  const nsValues = orderData ? [netsuiteTranId, netsuiteInternalId, netsuiteBcOrderId] : [];
+  const nsHasAny = nsValues.some((value) => normalizeValue(value) !== '');
+  comparisonSummary.hasNetSuite = nsHasAny;
+
+  if (nsRoot) {
+    if (nsHasAny || bcResult) {
+      const rows = [
+        renderNetSuiteRow('Tran ID', 'ns-order-tranid', netsuiteTranId, bcOrderNumber || bcReference, orderNumberMatchState, { note: orderNumberNote }),
+        renderNetSuiteRow('Internal ID', 'ns-order-internal', netsuiteInternalId, null, null),
+        renderNetSuiteRow('BC Order ID', 'ns-bc-order', netsuiteBcOrderId, bcOrderId, orderIdMatchState),
+      ];
+      nsRoot.innerHTML = rows.join('');
+    } else {
+      nsRoot.innerHTML = '<div class="placeholder muted">No detected data.</div>';
+    }
+  }
+
+  if (nsMeta) {
+    nsMeta.textContent = nsHasAny ? 'NetSuite order data detected.' : 'Waiting for detected data.';
+  }
+
+  let hasDifferences = false;
+  let hasComparableValues = false;
+  if (bcResult) {
+    const comparisons = [
+      { matchState: orderNumberMatchState },
+      { matchState: orderIdMatchState },
+    ];
+    comparisons.forEach(({ matchState }) => {
+      if (!matchState) return;
+      hasComparableValues = true;
+      if (matchState === 'mismatch') {
+        hasDifferences = true;
+      }
+    });
+  }
+
+  comparisonSummary.hasBcResult = !!bcResult;
+  comparisonSummary.hasDifferences = hasDifferences;
+  comparisonSummary.hasComparableValues = !!bcResult && hasComparableValues;
+  if (comparisonSummary.hasBcResult) {
+    comparisonSummary.allMatch = comparisonSummary.hasComparableValues && !comparisonSummary.hasDifferences;
+  }
+
+  let summaryMetaText = 'Review detected NetSuite order identifiers. BigCommerce differences will appear inline after a lookup.';
+  if (summaryMeta) {
+    if (bcResult) {
+      if (comparisonSummary.hasComparableValues) {
+        summaryMetaText = comparisonSummary.hasDifferences
+          ? 'BigCommerce differences appear inline below.'
+          : 'All comparable BigCommerce values match NetSuite.';
+      } else {
+        summaryMetaText = 'Lookup completed, but there were no comparable IDs to review.';
+      }
+      if (bcResult?.source) {
+        summaryMetaText += ` · ${bcResult.source}`;
+      }
+    }
+    summaryMeta.textContent = summaryMetaText;
+  }
+
+  return { comparisonSummary, summaryMetaText };
+}
+
+function renderCustomerSummary(customerData) {
+  const nsRoot = $('customerSummary');
+  const nsMeta = $('customerMeta');
+  const summaryMeta = $('summaryMeta');
+
+  const comparisonSummary = createEmptyComparisonSummary();
+  const bcResult = (lastSearchResult?.recordType === 'customer') ? lastSearchResult : null;
+  const bcData = bcResult?.data || null;
+
+  const netsuiteEntityId = customerData?.entityId ?? null;
+  const netsuiteInternalId = customerData?.internalId ?? null;
+  const netsuiteEmail = customerData?.email ?? null;
+  const netsuiteBcCustomerId = customerData?.bcCustomerId ?? null;
+
+  const bcCustomerId = bcData?.id ?? null;
+  const bcEmail = bcData?.email ?? null;
+
+  const customerIdMatchState = bcResult ? determineMatchState(netsuiteBcCustomerId, bcCustomerId) : null;
+  const emailMatchState = bcResult ? determineMatchState(netsuiteEmail, bcEmail) : null;
+
+  const nsValues = customerData ? [netsuiteEntityId, netsuiteInternalId, netsuiteEmail, netsuiteBcCustomerId] : [];
+  const nsHasAny = nsValues.some((value) => normalizeValue(value) !== '');
+  comparisonSummary.hasNetSuite = nsHasAny;
+
+  if (nsRoot) {
+    if (nsHasAny || bcResult) {
+      const rows = [
+        renderNetSuiteRow('Entity ID', 'ns-customer-entityid', netsuiteEntityId, null, null),
+        renderNetSuiteRow('Email', 'ns-customer-email', netsuiteEmail, bcEmail, emailMatchState),
+        renderNetSuiteRow('Internal ID', 'ns-customer-internal', netsuiteInternalId, null, null),
+        renderNetSuiteRow('BC Customer ID', 'ns-bc-customer', netsuiteBcCustomerId, bcCustomerId, customerIdMatchState),
+      ];
+      nsRoot.innerHTML = rows.join('');
+    } else {
+      nsRoot.innerHTML = '<div class="placeholder muted">No detected data.</div>';
+    }
+  }
+
+  if (nsMeta) {
+    nsMeta.textContent = nsHasAny ? 'NetSuite customer data detected.' : 'Waiting for detected data.';
+  }
+
+  let hasDifferences = false;
+  let hasComparableValues = false;
+  if (bcResult) {
+    const comparisons = [
+      { matchState: emailMatchState },
+      { matchState: customerIdMatchState },
+    ];
+    comparisons.forEach(({ matchState }) => {
+      if (!matchState) return;
+      hasComparableValues = true;
+      if (matchState === 'mismatch') {
+        hasDifferences = true;
+      }
+    });
+  }
+
+  comparisonSummary.hasBcResult = !!bcResult;
+  comparisonSummary.hasDifferences = hasDifferences;
+  comparisonSummary.hasComparableValues = !!bcResult && hasComparableValues;
+  if (comparisonSummary.hasBcResult) {
+    comparisonSummary.allMatch = comparisonSummary.hasComparableValues && !comparisonSummary.hasDifferences;
+  }
+
+  let summaryMetaText = 'Review detected NetSuite customer identifiers. BigCommerce differences will appear inline after a lookup.';
+  if (summaryMeta) {
+    if (bcResult) {
+      if (comparisonSummary.hasComparableValues) {
+        summaryMetaText = comparisonSummary.hasDifferences
+          ? 'BigCommerce differences appear inline below.'
+          : 'All comparable BigCommerce values match NetSuite.';
+      } else {
+        summaryMetaText = 'Lookup completed, but there were no comparable IDs to review.';
+      }
+      if (bcResult?.source) {
+        summaryMetaText += ` · ${bcResult.source}`;
+      }
+    }
+    summaryMeta.textContent = summaryMetaText;
+  }
+
+  return { comparisonSummary, summaryMetaText };
+}
+
 function renderIdSummary(){
   const card = $('idSummaryCard');
   const summaryMeta = $('summaryMeta');
+  const itemSection = $('itemSummarySection');
+  const orderSection = $('orderSummarySection');
+  const customerSection = $('customerSummarySection');
 
-  let metaText = 'NetSuite item identifiers appear automatically when viewing an item record.';
+  let metaText = 'NetSuite identifiers appear automatically when viewing a record.';
   let comparisonSummary = createEmptyComparisonSummary();
 
   if (!card) {
@@ -428,21 +629,32 @@ function renderIdSummary(){
   const detection = latestNetSuitePayload || null;
   const detectionType = normalizeLookupType(detection?.type || null);
   const detectionData = detection?.data || null;
-  const isItemRecord = detectionType === 'item';
-
-  if (!isItemRecord) {
-    card.classList.add('hidden');
-    if (summaryMeta) {
-      summaryMeta.textContent = metaText;
-    }
-    lastComparisonSummary = comparisonSummary;
-    return comparisonSummary;
-  }
 
   card.classList.remove('hidden');
-  const { comparisonSummary: summary, summaryMetaText } = renderItemSummary(detectionData);
-  comparisonSummary = summary;
-  metaText = summaryMetaText;
+  if (itemSection) itemSection.classList.add('hidden');
+  if (orderSection) orderSection.classList.add('hidden');
+  if (customerSection) customerSection.classList.add('hidden');
+
+  let summaryResult = null;
+  if (detectionType === 'order') {
+    if (orderSection) orderSection.classList.remove('hidden');
+    summaryResult = renderOrderSummary(detectionData);
+  } else if (detectionType === 'customer') {
+    if (customerSection) customerSection.classList.remove('hidden');
+    summaryResult = renderCustomerSummary(detectionData);
+  } else {
+    if (itemSection) itemSection.classList.remove('hidden');
+    summaryResult = renderItemSummary(detectionData);
+  }
+
+  if (summaryResult && typeof summaryResult === 'object') {
+    if (summaryResult.comparisonSummary) {
+      comparisonSummary = summaryResult.comparisonSummary;
+    }
+    if (summaryResult.summaryMetaText) {
+      metaText = summaryResult.summaryMetaText;
+    }
+  }
 
   if (summaryMeta) {
     summaryMeta.textContent = metaText;
