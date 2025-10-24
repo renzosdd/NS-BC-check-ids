@@ -1215,7 +1215,7 @@ async function initPopup() {
   });
   $('bcViewPayload')?.addEventListener('click', () => { openPayloadViewer(); });
   applyDetectedFromPage('load');
-});
+};
 
 document.addEventListener('DOMContentLoaded', () => {
   initPopup().catch((error) => {
