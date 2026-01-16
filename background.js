@@ -646,6 +646,9 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         await setActiveAccountId(msg?.id || null);
         await refreshAllBadges();
         sendResponse({ ok: true });
+      } else if (msg?.type === "account:get-active") {
+        const account = await getActiveAccount();
+        sendResponse({ ok: true, account: account || null });
       }
     } catch (e) {
       sendResponse({ ok: false, error: String(e) });

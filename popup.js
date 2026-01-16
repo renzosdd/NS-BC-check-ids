@@ -12,7 +12,7 @@ function createEmptyComparisonSummary() {
 
 function normalizeLookupType(rawType) {
   const value = typeof rawType === 'string' ? rawType.toLowerCase() : '';
-  if (value === 'order' || value === 'customer') return value;
+  if (value === 'order' || value === 'customer' || value === 'hooks') return value;
   return 'item';
 }
 
@@ -344,11 +344,18 @@ function setLookupType(type, { userInitiated = false, syncWithDetection = false 
   }
   updateLookupTypeButtons();
   updateLookupControls();
-  if (syncWithDetection) {
-    setLookupInputFromDetection(latestNetSuitePayload, { force: true });
-  } else if (changed && latestNetSuitePayload && normalizeLookupType(latestNetSuitePayload.type) === currentLookupType) {
-    setLookupInputFromDetection(latestNetSuitePayload, { force: true });
+  if (nextType === 'hooks') {
+    // Load hooks when switching to hooks tab
+    loadHooks();
+  } else {
+    if (syncWithDetection) {
+      setLookupInputFromDetection(latestNetSuitePayload, { force: true });
+    } else if (changed && latestNetSuitePayload && normalizeLookupType(latestNetSuitePayload.type) === currentLookupType) {
+      setLookupInputFromDetection(latestNetSuitePayload, { force: true });
+    }
   }
+  renderIdSummary();
+  renderBigCommerceDetails();
 }
 
 function detectionHasData(payload) {
@@ -685,6 +692,8 @@ function renderIdSummary(){
   const itemSection = $('itemSummarySection');
   const orderSection = $('orderSummarySection');
   const customerSection = $('customerSummarySection');
+  const hooksSection = $('hooksSection');
+  const bcResultCard = $('bcResultCard');
 
   let metaText = 'NetSuite identifiers appear automatically when viewing a record.';
   let comparisonSummary = createEmptyComparisonSummary();
@@ -693,6 +702,24 @@ function renderIdSummary(){
     lastComparisonSummary = comparisonSummary;
     return comparisonSummary;
   }
+
+  // Handle hooks tab
+  if (currentLookupType === 'hooks') {
+    card.classList.remove('hidden');
+    if (itemSection) itemSection.classList.add('hidden');
+    if (orderSection) orderSection.classList.add('hidden');
+    if (customerSection) customerSection.classList.add('hidden');
+    if (hooksSection) hooksSection.classList.remove('hidden');
+    if (bcResultCard) bcResultCard.classList.add('hidden');
+    if (summaryMeta) {
+      summaryMeta.textContent = 'Manage BigCommerce webhooks for the active account.';
+    }
+    return comparisonSummary;
+  }
+
+  // Hide hooks section and show bcResultCard for other tabs
+  if (hooksSection) hooksSection.classList.add('hidden');
+  if (bcResultCard) bcResultCard.classList.remove('hidden');
 
   const detection = latestNetSuitePayload || null;
   const detectionType = normalizeLookupType(detection?.type || null);
@@ -803,22 +830,37 @@ function updateLookupControls() {
   const lookupType = currentLookupType || 'item';
   const input = $('sku');
   const lookupBtn = $('lookup');
-  if (input) {
-    if (lookupType === 'order') {
-      input.placeholder = 'BigCommerce order ID or number...';
-    } else if (lookupType === 'customer') {
-      input.placeholder = 'Customer email or BigCommerce ID...';
-    } else {
-      input.placeholder = 'SKU...';
+  const useDetectedBtn = $('useDetected');
+  const controlGrid = input?.closest('.control-grid');
+  const actionGrid = lookupBtn?.closest('.action-grid');
+  
+  // Hide input and buttons when in hooks mode
+  if (lookupType === 'hooks') {
+    if (controlGrid) controlGrid.style.display = 'none';
+    if (actionGrid) actionGrid.style.display = 'none';
+    if (useDetectedBtn) useDetectedBtn.style.display = 'none';
+  } else {
+    if (controlGrid) controlGrid.style.display = '';
+    if (actionGrid) actionGrid.style.display = '';
+    if (useDetectedBtn) useDetectedBtn.style.display = '';
+    
+    if (input) {
+      if (lookupType === 'order') {
+        input.placeholder = 'BigCommerce order ID or number...';
+      } else if (lookupType === 'customer') {
+        input.placeholder = 'Customer email or BigCommerce ID...';
+      } else {
+        input.placeholder = 'SKU...';
+      }
     }
-  }
-  if (lookupBtn) {
-    if (lookupType === 'order') {
-      lookupBtn.textContent = 'Look up order';
-    } else if (lookupType === 'customer') {
-      lookupBtn.textContent = 'Look up customer';
-    } else {
-      lookupBtn.textContent = 'Look up';
+    if (lookupBtn) {
+      if (lookupType === 'order') {
+        lookupBtn.textContent = 'Look up order';
+      } else if (lookupType === 'customer') {
+        lookupBtn.textContent = 'Look up customer';
+      } else {
+        lookupBtn.textContent = 'Look up';
+      }
     }
   }
 }
@@ -1192,6 +1234,7 @@ async function applyDetectedFromPage(context='load'){
 async function initPopup() {
   updateLookupTypeButtons();
   updateLookupControls();
+  renderIdSummary();
   renderBigCommerceDetails();
 
   document.querySelectorAll('.lookup-type-btn').forEach((btn) => {
@@ -1216,6 +1259,13 @@ async function initPopup() {
         const optionsUrl = chrome.runtime.getURL('options.html');
         window.open(optionsUrl, '_blank');
       }
+    });
+  }
+
+  const refreshHooksBtn = $('refreshHooks');
+  if (refreshHooksBtn) {
+    refreshHooksBtn.addEventListener('click', () => {
+      loadHooks();
     });
   }
 
@@ -1264,3 +1314,348 @@ chrome.runtime.onMessage.addListener((msg) => {
     }
   }
 });
+
+// Hooks functionality
+const BC_API_BASE = 'https://api.bigcommerce.com/stores';
+let hooks = [];
+
+function escapeHtml(text) {
+  if (text == null) return '';
+  const div = document.createElement('div');
+  div.textContent = String(text);
+  return div.innerHTML;
+}
+
+async function getActiveAccountForHooks() {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'account:get-active' });
+    if (response?.ok && response.account) {
+      return response.account;
+    }
+    return null;
+  } catch (e) {
+    console.error('Failed to get active account:', e);
+    return null;
+  }
+}
+
+function buildAuthHeaders(account) {
+  const headers = {
+    'X-Auth-Token': account.accessToken,
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  };
+  if (account.clientId) {
+    headers['X-Auth-Client'] = account.clientId;
+  }
+  return headers;
+}
+
+async function fetchHooks(account) {
+  if (!account || !account.storeHash || !account.accessToken) {
+    throw new Error('Invalid account configuration');
+  }
+  
+  const url = `${BC_API_BASE}/${account.storeHash}/v2/hooks`;
+  const headers = buildAuthHeaders(account);
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers,
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      let errorText = 'Unknown error';
+      try {
+        errorText = await response.text();
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.title || errorJson.message) {
+            errorText = errorJson.title || errorJson.message;
+          }
+        } catch {
+          // Keep text error if not JSON
+        }
+      } catch {
+        // Use default error text
+      }
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw e;
+  }
+}
+
+async function updateHookStatus(account, hookId, isActive) {
+  if (!account || !account.storeHash || !account.accessToken) {
+    throw new Error('Invalid account configuration');
+  }
+  
+  const url = `${BC_API_BASE}/${account.storeHash}/v2/hooks/${hookId}`;
+  const headers = buildAuthHeaders(account);
+  const payload = { is_active: isActive };
+  
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 10000);
+  
+  try {
+    const response = await fetch(url, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    
+    clearTimeout(timeoutId);
+    
+    if (!response.ok) {
+      let errorText = 'Unknown error';
+      try {
+        errorText = await response.text();
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.title || errorJson.message) {
+            errorText = errorJson.title || errorJson.message;
+          }
+        } catch {
+          // Keep text error if not JSON
+        }
+      } catch {
+        // Use default error text
+      }
+      throw new Error(`HTTP ${response.status}: ${errorText}`);
+    }
+    
+    return await response.json().catch(() => ({}));
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error('Request timed out');
+    }
+    throw e;
+  }
+}
+
+function renderHooksList(hooksList) {
+  const hooksListEl = $('hooksList');
+  const hooksMeta = $('hooksMeta');
+  if (!hooksListEl) return;
+  
+  if (!Array.isArray(hooksList) || hooksList.length === 0) {
+    hooksListEl.innerHTML = '<div class="placeholder muted">No hooks found for this account.</div>';
+    if (hooksMeta) {
+      hooksMeta.textContent = 'No hooks found.';
+    }
+    return;
+  }
+  
+  if (hooksMeta) {
+    hooksMeta.textContent = `${hooksList.length} hook${hooksList.length !== 1 ? 's' : ''} found.`;
+  }
+  
+  hooksListEl.innerHTML = hooksList.map((hook, index) => {
+    const isActive = hook.is_active === true;
+    const hookId = hook.id || 'N/A';
+    const hookName = hook.name || hook.scope || 'Unnamed Hook';
+    const hookScope = hook.scope || '';
+    const hookDestination = hook.destination || '';
+    const statusClass = isActive ? 'active' : 'inactive';
+    const destinationId = `hook-dest-${hookId}-${index}`;
+    const showBtnId = `show-dest-${hookId}-${index}`;
+    const copyBtnId = `copy-dest-${hookId}-${index}`;
+    
+    return `
+      <div class="hook-item ${statusClass}" data-hook-id="${hookId}">
+        <div class="hook-info">
+          <div class="hook-name">${escapeHtml(hookName)}</div>
+          <div class="hook-details">
+            <div class="hook-details-row">
+              <span class="hook-id">ID: ${escapeHtml(String(hookId))}</span>
+              ${hookScope ? `<span>Scope: ${escapeHtml(hookScope)}</span>` : ''}
+            </div>
+            ${hookDestination ? `
+              <div class="hook-destination-container">
+                <div class="hook-destination-label">
+                  <span>Destination:</span>
+                  <div class="hook-destination-actions">
+                    <button class="btn-tiny" id="${showBtnId}" data-destination-id="${destinationId}">Show</button>
+                    <button class="btn-tiny copy" id="${copyBtnId}" data-destination="${escapeHtml(hookDestination)}">Copy</button>
+                  </div>
+                </div>
+                <div class="hook-destination-url" id="${destinationId}">${escapeHtml(hookDestination)}</div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+        <label class="toggle-switch-hook">
+          <input type="checkbox" ${isActive ? 'checked' : ''} data-hook-id="${hookId}" />
+          <span class="toggle-slider-hook"></span>
+        </label>
+      </div>
+    `;
+  }).join('');
+  
+  // Attach event listeners to toggles
+  hooksListEl.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+    checkbox.addEventListener('change', (e) => {
+      const hookId = e.target.getAttribute('data-hook-id');
+      const isActive = e.target.checked;
+      toggleHook(hookId, isActive);
+    });
+  });
+  
+  // Attach event listeners to show/hide destination buttons
+  hooksListEl.querySelectorAll('[id^="show-dest-"]').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const destinationId = e.target.getAttribute('data-destination-id');
+      const destinationEl = $(destinationId);
+      if (destinationEl) {
+        const isVisible = destinationEl.classList.contains('visible');
+        if (isVisible) {
+          destinationEl.classList.remove('visible');
+          e.target.textContent = 'Show';
+        } else {
+          destinationEl.classList.add('visible');
+          e.target.textContent = 'Hide';
+        }
+      }
+    });
+  });
+  
+  // Attach event listeners to copy destination buttons
+  hooksListEl.querySelectorAll('[id^="copy-dest-"]').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const destination = e.target.getAttribute('data-destination');
+      if (destination) {
+        try {
+          await navigator.clipboard.writeText(destination);
+          const originalText = e.target.textContent;
+          e.target.textContent = 'Copied!';
+          setTimeout(() => {
+            e.target.textContent = originalText;
+          }, 2000);
+        } catch (err) {
+          console.error('Failed to copy:', err);
+          e.target.textContent = 'Error';
+          setTimeout(() => {
+            e.target.textContent = 'Copy';
+          }, 2000);
+        }
+      }
+    });
+  });
+}
+
+async function loadHooks() {
+  if (!hasActiveAccountConfigured) {
+    setStatus('Select a BigCommerce account to load hooks.', 'warn');
+    return;
+  }
+  
+  const account = await getActiveAccountForHooks();
+  if (!account) {
+    setStatus('No active account configured.', 'warn');
+    return;
+  }
+  
+  setStatus('Loading hooks...', 'info');
+  const hooksListEl = $('hooksList');
+  if (hooksListEl) {
+    hooksListEl.innerHTML = '<div class="placeholder muted">Loading...</div>';
+  }
+  
+  try {
+    const hooksList = await fetchHooks(account);
+    hooks = hooksList;
+    renderHooksList(hooks);
+    setStatus(`Loaded ${hooksList.length} hook${hooksList.length !== 1 ? 's' : ''}.`, true);
+    setTimeout(() => setStatus(''), 3000);
+  } catch (e) {
+    if (e.message.includes('timed out')) {
+      setStatus('Request timed out. Please check your connection.', false);
+    } else if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+      setStatus('Network error. Please check your connection.', false);
+    } else {
+      setStatus(`Failed to load hooks: ${e.message}`, false);
+    }
+    console.error('Failed to load hooks:', e);
+    if (hooksListEl) {
+      hooksListEl.innerHTML = `<div class="placeholder muted" style="color: #b91c1c;">Failed to load hooks: ${escapeHtml(e.message)}</div>`;
+    }
+  }
+}
+
+async function toggleHook(hookId, isActive) {
+  if (!hasActiveAccountConfigured) {
+    setStatus('Select a BigCommerce account.', 'warn');
+    return;
+  }
+  
+  const account = await getActiveAccountForHooks();
+  if (!account) {
+    setStatus('No active account configured.', 'warn');
+    return;
+  }
+  
+  const hookItem = document.querySelector(`.hook-item[data-hook-id="${hookId}"]`);
+  const checkbox = document.querySelector(`input[data-hook-id="${hookId}"]`);
+  
+  if (hookItem) {
+    hookItem.classList.add('loading');
+  }
+  if (checkbox) {
+    checkbox.disabled = true;
+  }
+  
+  setStatus(`${isActive ? 'Activating' : 'Deactivating'} hook...`, 'info');
+  
+  try {
+    await updateHookStatus(account, hookId, isActive);
+    
+    // Update local state
+    const hook = hooks.find(h => String(h.id) === String(hookId));
+    if (hook) {
+      hook.is_active = isActive;
+    }
+    
+    // Update UI
+    if (hookItem) {
+      hookItem.classList.remove('loading');
+      hookItem.classList.remove('active', 'inactive');
+      hookItem.classList.add(isActive ? 'active' : 'inactive');
+    }
+    
+    setStatus(`Hook ${isActive ? 'activated' : 'deactivated'} successfully.`, true);
+    setTimeout(() => setStatus(''), 3000);
+  } catch (e) {
+    // Revert checkbox state
+    if (checkbox) {
+      checkbox.checked = !isActive;
+      checkbox.disabled = false;
+    }
+    if (hookItem) {
+      hookItem.classList.remove('loading');
+    }
+    
+    if (e.message.includes('timed out')) {
+      setStatus('Request timed out. Please try again.', false);
+    } else if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+      setStatus('Network error. Please check your connection.', false);
+    } else {
+      setStatus(`Failed to ${isActive ? 'activate' : 'deactivate'} hook: ${e.message}`, false);
+    }
+    console.error('Failed to toggle hook:', e);
+  }
+}

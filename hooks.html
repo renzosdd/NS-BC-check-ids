@@ -1,0 +1,88 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>BC SKU Lookup • Hooks Control</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 0; padding: 32px; background: #f8fafc; color: #0f172a; }
+    h1 { margin: 0 0 12px; font-size: 28px; }
+    h2 { margin: 0 0 12px; font-size: 20px; }
+    .muted { color: #64748b; }
+    .page { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+    .card { background: #fff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 24px; box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06); }
+    .account-info { padding: 12px; border-radius: 12px; background: #f8fafc; border: 1px solid #e2e8f0; margin-bottom: 16px; }
+    .account-info strong { color: #1f2937; }
+    .actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 16px; }
+    button { padding: 10px 16px; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; font-size: 14px; transition: background 0.2s; }
+    button.secondary { background: #f3f4f6; color: #111827; border: 1px solid #e5e7eb; }
+    button.secondary:hover { background: #e5e7eb; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { margin-top: 12px; font-size: 13px; min-height: 20px; }
+    .status.ok { color: #047857; }
+    .status.error { color: #b91c1c; }
+    .status.info { color: #1e40af; }
+    .status.warn { color: #b45309; }
+    .hooks-list { display: flex; flex-direction: column; gap: 12px; }
+    .hook-item { display: flex; align-items: center; gap: 16px; padding: 16px; border-radius: 12px; border: 1px solid #e2e8f0; background: #fff; transition: all 0.2s; }
+    .hook-item.active { border-color: #10b981; background: #f0fdf4; }
+    .hook-item.inactive { border-color: #ef4444; background: #fef2f2; }
+    .hook-item.loading { opacity: 0.6; pointer-events: none; }
+    .hook-info { flex: 1; min-width: 0; }
+    .hook-name { font-weight: 600; font-size: 14px; color: #1f2937; margin-bottom: 4px; }
+    .hook-details { font-size: 12px; color: #64748b; display: flex; flex-wrap: wrap; gap: 12px; }
+    .hook-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .toggle-switch { position: relative; display: inline-block; width: 52px; height: 28px; }
+    .toggle-switch input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: 0.3s; border-radius: 28px; }
+    .toggle-slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: 0.3s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+    .toggle-switch input:checked + .toggle-slider { background-color: #10b981; }
+    .toggle-switch input:checked + .toggle-slider:before { transform: translateX(24px); }
+    .toggle-switch input:disabled + .toggle-slider { opacity: 0.5; cursor: not-allowed; }
+    .empty-state { padding: 48px 24px; text-align: center; color: #64748b; }
+    .empty-state-icon { font-size: 48px; margin-bottom: 16px; }
+    .loading-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid #e2e8f0; border-top-color: #4f46e5; border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .checkbox { display: flex; align-items: center; gap: 8px; }
+    .checkbox input[type="checkbox"] { width: auto; margin: 0; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <header>
+      <h1>Hooks Control</h1>
+      <p class="muted">Manage BigCommerce webhooks for the active account.</p>
+    </header>
+
+    <section class="card">
+      <h2>Account Information</h2>
+      <div class="account-info" id="accountInfo">
+        <div class="loading-spinner"></div> Loading account...
+      </div>
+    </section>
+
+    <section class="card">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+        <h2 style="margin: 0;">Hooks</h2>
+        <button type="button" class="secondary" id="refreshBtn">Refresh</button>
+      </div>
+      <div style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+        <label class="checkbox" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #475569; cursor: pointer;">
+          <input type="checkbox" id="autoRefresh" checked />
+          Auto-refresh every 30 seconds
+        </label>
+      </div>
+      <div class="muted" style="font-size: 12px; margin-bottom: 16px;" id="lastUpdate">Never updated</div>
+      <div id="hooksList" class="hooks-list">
+        <div class="empty-state">
+          <div class="loading-spinner"></div>
+          <div style="margin-top: 16px;">Loading hooks...</div>
+        </div>
+      </div>
+      <div class="status" id="actionStatus"></div>
+    </section>
+  </div>
+
+  <script src="hooks.js"></script>
+</body>
+</html>

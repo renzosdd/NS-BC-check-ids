@@ -67,6 +67,31 @@
     .card-actions .btn.primary-link:hover { background: #c7d2fe; color: #312e81; }
     .toast { position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%); background: #111827; color: #fff; padding: 6px 12px; border-radius: 999px; font-size: 12px; opacity: 0; transition: opacity .2s ease; box-shadow: 0 6px 18px rgba(15, 23, 42, 0.3); }
     .toast.show { opacity: 1; }
+    .hook-item { display: flex; align-items: flex-start; gap: 12px; padding: 12px; border-radius: 10px; border: 1px solid #e5e7eb; background: #fff; margin-bottom: 8px; transition: all 0.2s; }
+    .hook-item.active { border-color: #10b981; background: #f0fdf4; }
+    .hook-item.inactive { border-color: #ef4444; background: #fef2f2; }
+    .hook-item.loading { opacity: 0.6; pointer-events: none; }
+    .hook-info { flex: 1; min-width: 0; }
+    .hook-name { font-weight: 600; font-size: 13px; color: #1f2937; margin-bottom: 4px; }
+    .hook-details { font-size: 11px; color: #64748b; display: flex; flex-direction: column; gap: 6px; }
+    .hook-details-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .hook-id { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .hook-destination-container { display: flex; flex-direction: column; gap: 4px; }
+    .hook-destination-label { display: flex; align-items: center; gap: 6px; }
+    .hook-destination-url { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; color: #1f2937; padding: 6px 8px; border-radius: 6px; background: #f8fafc; border: 1px solid #e5e7eb; word-break: break-all; white-space: pre-wrap; max-width: 100%; display: none; }
+    .hook-destination-url.visible { display: block; }
+    .hook-destination-actions { display: flex; gap: 4px; }
+    .btn-tiny { padding: 4px 8px; border-radius: 6px; border: none; font-weight: 600; cursor: pointer; font-size: 10px; transition: background 0.2s; background: #f3f4f6; color: #111827; border: 1px solid #e5e7eb; }
+    .btn-tiny:hover { background: #e5e7eb; }
+    .btn-tiny.copy { background: #eef2ff; color: #4338ca; border-color: #c7d2fe; }
+    .btn-tiny.copy:hover { background: #c7d2fe; }
+    .toggle-switch-hook { position: relative; display: inline-block; width: 44px; height: 24px; flex-shrink: 0; margin-top: 2px; }
+    .toggle-switch-hook input { opacity: 0; width: 0; height: 0; }
+    .toggle-slider-hook { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #cbd5e1; transition: 0.3s; border-radius: 24px; }
+    .toggle-slider-hook:before { position: absolute; content: ""; height: 16px; width: 16px; left: 4px; bottom: 4px; background-color: white; transition: 0.3s; border-radius: 50%; box-shadow: 0 2px 4px rgba(0,0,0,0.2); }
+    .toggle-switch-hook input:checked + .toggle-slider-hook { background-color: #10b981; }
+    .toggle-switch-hook input:checked + .toggle-slider-hook:before { transform: translateX(20px); }
+    .toggle-switch-hook input:disabled + .toggle-slider-hook { opacity: 0.5; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -90,6 +115,7 @@
       <button class="lookup-type-btn active" data-type="item" aria-pressed="true">Item</button>
       <button class="lookup-type-btn" data-type="order" aria-pressed="false">Order</button>
       <button class="lookup-type-btn" data-type="customer" aria-pressed="false">Customer</button>
+      <button class="lookup-type-btn" data-type="hooks" aria-pressed="false">Hooks</button>
     </div>
     <div class="control-grid">
       <input id="sku" placeholder="SKU..." />
@@ -135,6 +161,18 @@
           </div>
           <div class="id-list" id="customerSummary">
             <div class="placeholder muted">No detected data.</div>
+          </div>
+        </div>
+        <div class="summary-column hidden" id="hooksSection">
+          <div class="column-header">
+            <div class="column-title">Hooks</div>
+            <div class="column-meta" id="hooksMeta">Click refresh to load hooks.</div>
+          </div>
+          <div style="display: flex; justify-content: flex-end; margin-bottom: 12px;">
+            <button class="btn secondary small" id="refreshHooks">Refresh</button>
+          </div>
+          <div class="id-list" id="hooksList">
+            <div class="placeholder muted">No hooks loaded yet.</div>
           </div>
         </div>
       </div>
