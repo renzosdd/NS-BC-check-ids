@@ -282,6 +282,39 @@ async function fetchProductMetafields(cfg, productId) {
   }
 }
 
+async function listProductMetafields(productId) {
+  const normalizedProductId = String(productId || '').trim();
+  if (!normalizedProductId) {
+    throw new Error('Missing product ID.');
+  }
+  const cfg = await ensureActiveAccount();
+  const details = await fetchProductMetafields(cfg, normalizedProductId);
+  if (details.error) {
+    throw new Error(details.error);
+  }
+  return details.entries;
+}
+
+async function deleteProductMetafield(productId, metafieldId) {
+  const normalizedProductId = String(productId || '').trim();
+  const normalizedMetafieldId = String(metafieldId || '').trim();
+  if (!normalizedProductId || !normalizedMetafieldId) {
+    throw new Error('Missing product ID or metafield ID.');
+  }
+  const cfg = await ensureActiveAccount();
+  const baseV3 = `https://api.bigcommerce.com/stores/${cfg.storeHash}/v3`;
+  const headers = authHeaders(cfg);
+  const url = `${baseV3}/catalog/products/${encodeURIComponent(normalizedProductId)}/metafields/${encodeURIComponent(normalizedMetafieldId)}`;
+  const response = await fetch(url, { method: 'DELETE', headers });
+  if (response.status === 404) {
+    throw new Error('Metafield not found. It may have already been deleted.');
+  }
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(buildError('Error deleting product metafield', `${response.status} ${text}`));
+  }
+}
+
 async function buildOrderExtras(baseUrl, headers, orderId) {
   const [shipping, coupons, products] = await Promise.all([
     fetchOrderRelatedCollection(baseUrl, headers, orderId, 'shipping_addresses'),
@@ -649,6 +682,16 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } else if (msg?.type === "account:get-active") {
         const account = await getActiveAccount();
         sendResponse({ ok: true, account: account || null });
+      } else if (msg?.type === 'metafields:list') {
+        const productId = msg?.productId;
+        const entries = await listProductMetafields(productId);
+        sendResponse({ ok: true, productId, entries });
+      } else if (msg?.type === 'metafields:delete') {
+        const productId = msg?.productId;
+        const metafieldId = msg?.metafieldId;
+        await deleteProductMetafield(productId, metafieldId);
+        const entries = await listProductMetafields(productId);
+        sendResponse({ ok: true, productId, entries });
       }
     } catch (e) {
       sendResponse({ ok: false, error: String(e) });

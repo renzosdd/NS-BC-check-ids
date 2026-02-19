@@ -3,6 +3,7 @@ const $ = (id) => document.getElementById(id);
 let lastLookupResult = null;
 let activeTabId = null;
 const tabPayloads = new Map();
+let metafieldsBusy = false;
 
 function toast(message) {
   const el = $('viewerToast');
@@ -55,6 +56,78 @@ function getPayloadObject(result) {
   return null;
 }
 
+
+
+async function refreshMetafieldsFromApi() {
+  if (metafieldsBusy) return;
+  if (!lastLookupResult || (lastLookupResult.recordType || '').toLowerCase() !== 'item') {
+    toast('Metafields are only available for item lookups');
+    return;
+  }
+  const productId = normalizeValue(lastLookupResult?.data?.bcProductId);
+  if (!productId) {
+    toast('No BigCommerce product ID available');
+    return;
+  }
+  metafieldsBusy = true;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'metafields:list', productId });
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Could not refresh metafields');
+    }
+    const entries = Array.isArray(response.entries) ? response.entries : [];
+    if (!lastLookupResult.extras || typeof lastLookupResult.extras !== 'object') {
+      lastLookupResult.extras = {};
+    }
+    lastLookupResult.extras.metafields = entries;
+    lastLookupResult.extras.metafieldsError = null;
+    buildTabs(lastLookupResult);
+    showContent();
+    selectTab('metafields');
+    toast(`Metafields refreshed (${entries.length})`);
+  } catch (e) {
+    toast(String(e));
+  } finally {
+    metafieldsBusy = false;
+  }
+}
+
+async function deleteMetafield(productId, metafieldId) {
+  if (metafieldsBusy) return;
+  const normalizedProductId = normalizeValue(productId);
+  const normalizedMetafieldId = normalizeValue(metafieldId);
+  if (!normalizedProductId || !normalizedMetafieldId) {
+    toast('Missing product or metafield ID');
+    return;
+  }
+  const confirmed = window.confirm(`Delete metafield ${normalizedMetafieldId}? This cannot be undone.`);
+  if (!confirmed) return;
+  metafieldsBusy = true;
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: 'metafields:delete',
+      productId: normalizedProductId,
+      metafieldId: normalizedMetafieldId,
+    });
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Could not delete metafield');
+    }
+    const entries = Array.isArray(response.entries) ? response.entries : [];
+    if (!lastLookupResult.extras || typeof lastLookupResult.extras !== 'object') {
+      lastLookupResult.extras = {};
+    }
+    lastLookupResult.extras.metafields = entries;
+    lastLookupResult.extras.metafieldsError = null;
+    buildTabs(lastLookupResult);
+    showContent();
+    selectTab('metafields');
+    toast('Metafield deleted');
+  } catch (e) {
+    toast(String(e));
+  } finally {
+    metafieldsBusy = false;
+  }
+}
 function renderKeyValue(label, value) {
   const normalized = normalizeValue(value);
   const display = normalized ? escapeHtml(normalized) : '&mdash;';
@@ -370,6 +443,7 @@ function renderOrderProducts(extras) {
 function renderMetafields(extras) {
   const error = extras?.metafieldsError ? `<div class="error">${escapeHtml(extras.metafieldsError)}</div>` : '';
   const entries = Array.isArray(extras?.metafields) ? extras.metafields : [];
+  const productId = normalizeValue(lastLookupResult?.data?.bcProductId);
   if (entries.length > 0) {
     registerTabPayload('metafields', entries, 'metafields');
   } else if (extras?.metafieldsError) {
@@ -377,16 +451,23 @@ function renderMetafields(extras) {
   } else {
     registerTabPayload('metafields', null);
   }
+  const actions = `
+    <div class="tab-actions">
+      <button class="secondary" data-action="refresh-metafields" data-product-id="${escapeHtml(productId)}"${productId ? '' : ' disabled'}>Refresh metafields</button>
+    </div>
+  `;
   if (entries.length === 0) {
     return `
       <div class="card">
         <div class="card-title">Metafields</div>
+        ${actions}
         ${error || '<div class="empty">No metafields returned for this product.</div>'}
       </div>
     `;
   }
   const listItems = entries.map((metafield) => {
     const kvs = [
+      renderKeyValue('Metafield ID', metafield.id),
       renderKeyValue('Namespace', metafield.namespace),
       renderKeyValue('Key', metafield.key),
       renderKeyValue('Value', metafield.value),
@@ -394,10 +475,15 @@ function renderMetafields(extras) {
       renderKeyValue('Permission set', metafield.permission_set),
       renderKeyValue('Resource type', metafield.resource_type),
     ];
+    const metafieldId = normalizeValue(metafield.id);
     const title = metafield.key ? `${metafield.namespace ? `${escapeHtml(metafield.namespace)} · ` : ''}${escapeHtml(metafield.key)}` : 'Metafield';
+    const deleteAction = metafieldId && productId
+      ? `<button class="secondary" data-action="delete-metafield" data-product-id="${escapeHtml(productId)}" data-metafield-id="${escapeHtml(metafieldId)}">Delete</button>`
+      : '';
     return `
       <div class="list-item">
         <h3>${title}</h3>
+        <div class="tab-actions">${deleteAction}</div>
         <div class="kv-grid">${kvs.join('')}</div>
       </div>
     `;
@@ -405,6 +491,7 @@ function renderMetafields(extras) {
   return `
     <div class="card">
       <div class="card-title">Metafields</div>
+      ${actions}
       ${error}
       <div class="list">${listItems}</div>
     </div>
@@ -494,8 +581,22 @@ function handleTabActionClick(event) {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
   const action = target.getAttribute('data-action');
+  if (!action) return;
+
+  if (action === 'refresh-metafields') {
+    refreshMetafieldsFromApi();
+    return;
+  }
+
+  if (action === 'delete-metafield') {
+    const productId = target.getAttribute('data-product-id');
+    const metafieldId = target.getAttribute('data-metafield-id');
+    deleteMetafield(productId, metafieldId);
+    return;
+  }
+
   const tabId = target.getAttribute('data-tab');
-  if (!action || !tabId) return;
+  if (!tabId) return;
   if (action === 'view') {
     toggleTabPayload(tabId);
   } else if (action === 'copy') {
