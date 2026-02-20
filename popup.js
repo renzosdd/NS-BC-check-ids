@@ -12,7 +12,25 @@ function createEmptyComparisonSummary() {
 
 function normalizeLookupType(rawType) {
   const value = typeof rawType === 'string' ? rawType.toLowerCase() : '';
+  if (value.startsWith('b2b-') || value === 'b2b') return 'b2b';
   if (value === 'order' || value === 'customer' || value === 'hooks') return value;
+  return 'item';
+}
+
+function normalizeB2BEntity(rawEntity) {
+  const value = typeof rawEntity === 'string' ? rawEntity.toLowerCase() : '';
+  if (value === 'company' || value === 'company-user' || value === 'order' || value === 'invoice' || value === 'quote') {
+    return value;
+  }
+  return 'company';
+}
+
+function normalizeRecordType(rawType) {
+  const value = typeof rawType === 'string' ? rawType.toLowerCase() : '';
+  if (value === 'item' || value === 'order' || value === 'customer') return value;
+  if (value === 'b2b-company' || value === 'b2b-company-user' || value === 'b2b-order' || value === 'b2b-invoice' || value === 'b2b-quote') {
+    return value;
+  }
   return 'item';
 }
 
@@ -25,6 +43,7 @@ let lookupTypeLockedByUser = false;
 let accountSummaries = [];
 let activeAccountId = null;
 let hasActiveAccountConfigured = false;
+let currentB2BEntity = 'company';
 
 async function getActiveTab() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -292,7 +311,7 @@ function normalizeDetectedPayload(rawPayload) {
 
 function normalizeLookupResult(rawResult) {
   if (!rawResult || typeof rawResult !== 'object') return null;
-  const recordType = normalizeLookupType(rawResult.recordType);
+  const recordType = normalizeRecordType(rawResult.recordType);
   const data = rawResult.data && typeof rawResult.data === 'object' ? { ...rawResult.data } : null;
   const normalized = {
     recordType,
@@ -314,9 +333,14 @@ function normalizeLookupResult(rawResult) {
 }
 
 function getLookupTypeLabel(type) {
-  const normalized = normalizeLookupType(type);
+  const normalized = normalizeRecordType(type);
   if (normalized === 'order') return 'order';
   if (normalized === 'customer') return 'customer';
+  if (normalized === 'b2b-company') return 'B2B company';
+  if (normalized === 'b2b-company-user') return 'B2B company user';
+  if (normalized === 'b2b-order') return 'B2B order';
+  if (normalized === 'b2b-invoice') return 'B2B invoice';
+  if (normalized === 'b2b-quote') return 'B2B quote';
   return 'item';
 }
 
@@ -347,6 +371,8 @@ function setLookupType(type, { userInitiated = false, syncWithDetection = false 
   if (nextType === 'hooks') {
     // Load hooks when switching to hooks tab
     loadHooks();
+  } else if (nextType === 'b2b') {
+    // B2B lookups are manual and do not derive from NetSuite payload detection.
   } else {
     if (syncWithDetection) {
       setLookupInputFromDetection(latestNetSuitePayload, { force: true });
@@ -703,6 +729,13 @@ function renderIdSummary(){
     return comparisonSummary;
   }
 
+  if (currentLookupType === 'b2b') {
+    card.classList.add('hidden');
+    if (bcResultCard) bcResultCard.classList.remove('hidden');
+    lastComparisonSummary = comparisonSummary;
+    return comparisonSummary;
+  }
+
   // Handle hooks tab
   if (currentLookupType === 'hooks') {
     card.classList.remove('hidden');
@@ -778,7 +811,9 @@ function renderBigCommerceDetails() {
   }
 
   const type = getLookupTypeLabel(result.recordType);
-  const typeTitle = type.charAt(0).toUpperCase() + type.slice(1);
+  const typeTitle = type === 'item' || type === 'order' || type === 'customer'
+    ? type.charAt(0).toUpperCase() + type.slice(1)
+    : type;
   title.textContent = `BigCommerce ${typeTitle}`;
 
   const metaParts = [`${typeTitle} lookup ready`];
@@ -831,24 +866,54 @@ function updateLookupControls() {
   const input = $('sku');
   const lookupBtn = $('lookup');
   const useDetectedBtn = $('useDetected');
+  const b2bEntityRow = $('b2bEntityRow');
+  const b2bEntitySelect = $('b2bEntity');
   const controlGrid = input?.closest('.control-grid');
   const actionGrid = lookupBtn?.closest('.action-grid');
+
+  const b2bLabels = {
+    company: 'company',
+    'company-user': 'company user',
+    order: 'B2B order',
+    invoice: 'invoice',
+    quote: 'quote',
+  };
+
+  const b2bPlaceholders = {
+    company: 'Company email or ID...',
+    'company-user': 'Company user email or ID...',
+    order: 'B2B order ID...',
+    invoice: 'Invoice ID...',
+    quote: 'Quote ID...',
+  };
+
+  if (b2bEntitySelect) {
+    currentB2BEntity = normalizeB2BEntity(b2bEntitySelect.value || currentB2BEntity);
+    b2bEntitySelect.value = currentB2BEntity;
+  }
   
   // Hide input and buttons when in hooks mode
   if (lookupType === 'hooks') {
     if (controlGrid) controlGrid.style.display = 'none';
     if (actionGrid) actionGrid.style.display = 'none';
     if (useDetectedBtn) useDetectedBtn.style.display = 'none';
+    if (b2bEntityRow) b2bEntityRow.classList.add('hidden');
   } else {
     if (controlGrid) controlGrid.style.display = '';
     if (actionGrid) actionGrid.style.display = '';
-    if (useDetectedBtn) useDetectedBtn.style.display = '';
+    if (useDetectedBtn) useDetectedBtn.style.display = lookupType === 'b2b' ? 'none' : '';
+    if (b2bEntityRow) {
+      if (lookupType === 'b2b') b2bEntityRow.classList.remove('hidden');
+      else b2bEntityRow.classList.add('hidden');
+    }
     
     if (input) {
       if (lookupType === 'order') {
         input.placeholder = 'BigCommerce order ID or number...';
       } else if (lookupType === 'customer') {
         input.placeholder = 'Customer email or BigCommerce ID...';
+      } else if (lookupType === 'b2b') {
+        input.placeholder = b2bPlaceholders[currentB2BEntity] || 'B2B ID...';
       } else {
         input.placeholder = 'SKU...';
       }
@@ -858,6 +923,9 @@ function updateLookupControls() {
         lookupBtn.textContent = 'Look up order';
       } else if (lookupType === 'customer') {
         lookupBtn.textContent = 'Look up customer';
+      } else if (lookupType === 'b2b') {
+        const label = b2bLabels[currentB2BEntity] || 'B2B record';
+        lookupBtn.textContent = `Look up ${label}`;
       } else {
         lookupBtn.textContent = 'Look up';
       }
@@ -963,6 +1031,27 @@ function collectCustomerLookupCriteria() {
   return criteria;
 }
 
+function collectB2BLookupCriteria() {
+  const entity = normalizeB2BEntity($('b2bEntity')?.value || currentB2BEntity);
+  const inputValue = normalizeValue($('sku')?.value ?? '');
+  const isEmail = /@/.test(inputValue);
+  const supportsEmail = entity === 'company' || entity === 'company-user';
+  const criteria = {
+    b2bEntity: entity,
+    lookupId: null,
+    email: null,
+  };
+  if (!inputValue) {
+    return criteria;
+  }
+  if (isEmail && supportsEmail) {
+    criteria.email = inputValue;
+  } else {
+    criteria.lookupId = inputValue;
+  }
+  return criteria;
+}
+
 async function performItemLookup() {
   if (!hasActiveAccountConfigured) {
     setStatus('Select a BigCommerce account to run lookups.', 'warn');
@@ -1051,14 +1140,57 @@ async function performCustomerLookup() {
   }
 }
 
+async function performB2BLookup() {
+  if (!hasActiveAccountConfigured) {
+    setStatus('Select a BigCommerce account to run lookups.', 'warn');
+    return;
+  }
+  const criteria = collectB2BLookupCriteria();
+  const entity = criteria.b2bEntity;
+  const label = entity === 'company-user' ? 'company user' : entity;
+  const requiresIdOnly = entity === 'order' || entity === 'invoice' || entity === 'quote';
+  if (!criteria.lookupId && !criteria.email) {
+    setStatus(`Provide a ${label} ${requiresIdOnly ? 'ID' : 'email or ID'}.`, false);
+    return;
+  }
+  if (requiresIdOnly && criteria.email) {
+    setStatus(`Provide a ${label} ID. Email lookup is not supported for this record type.`, false);
+    return;
+  }
+  setStatus(`Looking up ${label}...`);
+  try {
+    const res = await chrome.runtime.sendMessage({
+      type: 'bc-lookup',
+      recordType: `b2b-${entity}`,
+      b2bEntity: entity,
+      lookupId: criteria.lookupId,
+      email: criteria.email,
+    });
+    if (res?.ok) {
+      renderBCCard(res?.data ?? null);
+      setStatus(`BigCommerce B2B ${label} retrieved.`, true);
+    } else {
+      renderBCCard(null);
+      handleLookupError(res?.error);
+    }
+  } catch (e) {
+    renderBCCard(null);
+    handleLookupError(String(e));
+  }
+}
+
 function getLookupStatusFromSummary(summary, lookupType = null) {
   const detectionType = normalizeLookupType(latestNetSuitePayload?.type || null);
   const requestedType = normalizeLookupType(lookupType || currentLookupType || detectionType);
-  const matchingResult = (lastSearchResult?.recordType === requestedType) ? lastSearchResult : null;
+  const matchingResult = requestedType === 'b2b'
+    ? (lastSearchResult?.recordType || '').startsWith('b2b-') ? lastSearchResult : null
+    : (lastSearchResult?.recordType === requestedType) ? lastSearchResult : null;
   const label = requestedType === 'order'
     ? 'BigCommerce order'
     : requestedType === 'customer'
       ? 'BigCommerce customer'
+      : requestedType === 'b2b'
+        ? 'BigCommerce B2B record'
       : 'BigCommerce item';
 
   if (!matchingResult) {
@@ -1269,6 +1401,14 @@ async function initPopup() {
     });
   }
 
+  const b2bEntitySelect = $('b2bEntity');
+  if (b2bEntitySelect) {
+    b2bEntitySelect.addEventListener('change', () => {
+      currentB2BEntity = normalizeB2BEntity(b2bEntitySelect.value);
+      updateLookupControls();
+    });
+  }
+
   $('bcViewPayload')?.addEventListener('click', () => { openPayloadViewer(); });
 
   await loadAccounts();
@@ -1294,6 +1434,8 @@ $('lookup').addEventListener('click', async () => {
     await performOrderLookup();
   } else if (lookupType === 'customer') {
     await performCustomerLookup();
+  } else if (lookupType === 'b2b') {
+    await performB2BLookup();
   } else {
     await performItemLookup();
   }
@@ -1318,13 +1460,6 @@ chrome.runtime.onMessage.addListener((msg) => {
 // Hooks functionality
 const BC_API_BASE = 'https://api.bigcommerce.com/stores';
 let hooks = [];
-
-function escapeHtml(text) {
-  if (text == null) return '';
-  const div = document.createElement('div');
-  div.textContent = String(text);
-  return div.innerHTML;
-}
 
 async function getActiveAccountForHooks() {
   try {

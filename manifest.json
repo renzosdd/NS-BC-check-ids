@@ -18,6 +18,7 @@
   ],
   "host_permissions": [
     "https://api.bigcommerce.com/*",
+    "https://api-b2b.bigcommerce.com/*",
     "https://*.netsuite.com/*",
     "https://bc-sku-lookup.local/*"
   ],

@@ -22,6 +22,7 @@
     .lookup-type-btn { flex: 1; border: none; background: transparent; border-radius: 8px; padding: 6px 8px; font-size: 12px; font-weight: 600; color: #4338ca; cursor: pointer; transition: background 0.2s, color 0.2s; }
     .lookup-type-btn:hover { background: rgba(99, 102, 241, 0.15); }
     .lookup-type-btn.active { background: #4338ca; color: #fff; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.2); }
+    .sub-control { margin-top: 8px; margin-bottom: 8px; }
     input { width: 100%; padding: 8px 10px; font-size: 14px; border-radius: 10px; border: 1px solid #d1d5db; background: #fff; color: #111827; }
     .btn { padding: 8px 10px; border-radius: 10px; border: none; font-weight: 600; cursor: pointer; font-size: 13px; transition: background 0.2s, border-color 0.2s; }
     .btn.primary { background: #4f46e5; color: #fff; }
@@ -99,7 +100,7 @@
     <div class="card-header">
       <div>
         <div class="card-title">BigCommerce Lookup</div>
-        <div class="card-subtitle muted">Look up items, orders, or customers and compare with NetSuite.</div>
+        <div class="card-subtitle muted">Look up items, orders, customers, and B2B records.</div>
       </div>
     </div>
     <div class="account-select">
@@ -115,7 +116,17 @@
       <button class="lookup-type-btn active" data-type="item" aria-pressed="true">Item</button>
       <button class="lookup-type-btn" data-type="order" aria-pressed="false">Order</button>
       <button class="lookup-type-btn" data-type="customer" aria-pressed="false">Customer</button>
+      <button class="lookup-type-btn" data-type="b2b" aria-pressed="false">B2B</button>
       <button class="lookup-type-btn" data-type="hooks" aria-pressed="false">Hooks</button>
+    </div>
+    <div class="sub-control hidden" id="b2bEntityRow">
+      <select id="b2bEntity" aria-label="B2B record type">
+        <option value="company">Company</option>
+        <option value="company-user">Company user</option>
+        <option value="order">B2B order</option>
+        <option value="invoice">Invoice</option>
+        <option value="quote">Quote</option>
+      </select>
     </div>
     <div class="control-grid">
       <input id="sku" placeholder="SKU..." />
