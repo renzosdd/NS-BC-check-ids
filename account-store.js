@@ -193,3 +193,48 @@ export async function clearAccounts() {
   await chrome.cookies.remove({ url: COOKIE_URL, name: COOKIE_NAME });
   await setActiveAccountId(null);
 }
+
+function uniqueAccountsById(accounts) {
+  const map = new Map();
+  (Array.isArray(accounts) ? accounts : []).forEach((entry) => {
+    const normalized = sanitizeAccountForStorage(entry);
+    map.set(normalized.id, normalized);
+  });
+  return Array.from(map.values());
+}
+
+export async function replaceAccounts(accounts, activeAccountId = null) {
+  const normalizedAccounts = uniqueAccountsById(accounts);
+  await writeAccountsCookie(normalizedAccounts);
+  const requestedActiveId = normalizeString(activeAccountId);
+  const hasRequestedActive = !!(requestedActiveId && normalizedAccounts.some((entry) => entry.id === requestedActiveId));
+  const nextActive = hasRequestedActive ? requestedActiveId : (normalizedAccounts[0]?.id || null);
+  await setActiveAccountId(nextActive);
+  return { count: normalizedAccounts.length, activeAccountId: nextActive };
+}
+
+export async function mergeAccounts(accounts, activeAccountId = null) {
+  const existing = await listAccounts();
+  const mergedById = new Map();
+  existing.forEach((entry) => {
+    mergedById.set(entry.id, sanitizeAccountForStorage(entry));
+  });
+  (Array.isArray(accounts) ? accounts : []).forEach((entry) => {
+    const normalized = sanitizeAccountForStorage(entry);
+    mergedById.set(normalized.id, normalized);
+  });
+  const merged = Array.from(mergedById.values());
+  await writeAccountsCookie(merged);
+
+  const currentActiveId = await getActiveAccountId();
+  const requestedActiveId = normalizeString(activeAccountId);
+  const canUseCurrentActive = !!(currentActiveId && merged.some((entry) => entry.id === currentActiveId));
+  const canUseRequestedActive = !!(requestedActiveId && merged.some((entry) => entry.id === requestedActiveId));
+  const nextActive = canUseCurrentActive
+    ? currentActiveId
+    : canUseRequestedActive
+      ? requestedActiveId
+      : (merged[0]?.id || null);
+  await setActiveAccountId(nextActive);
+  return { count: merged.length, activeAccountId: nextActive };
+}

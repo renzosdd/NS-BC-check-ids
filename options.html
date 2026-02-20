@@ -35,6 +35,8 @@
     .account-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .empty { padding: 16px; border-radius: 12px; background: #f1f5f9; border: 1px dashed #cbd5f5; text-align: center; color: #64748b; }
     .checkbox { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #475569; margin-top: 8px; }
+    .inline-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .hint { font-size: 12px; color: #64748b; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -82,6 +84,30 @@
       <div id="accountList" class="account-list">
         <div class="empty">No accounts saved yet. Add one using the form above.</div>
       </div>
+    </section>
+
+    <section class="card">
+      <h2>Backup and restore</h2>
+      <p class="muted">Export your saved accounts to a JSON file and import them later in any installation of this extension.</p>
+      <div class="form-grid">
+        <label>
+          Encryption password (optional)
+          <input id="backupPassphrase" type="password" placeholder="Use the same password when importing encrypted files" autocomplete="off" />
+        </label>
+      </div>
+      <div class="inline-actions">
+        <button type="button" class="secondary" id="exportAccounts">Export accounts</button>
+      </div>
+      <label class="checkbox">
+        <input type="checkbox" id="importReplaceMode" />
+        Replace existing accounts on import
+      </label>
+      <div class="inline-actions">
+        <button type="button" class="secondary" id="importAccounts">Import accounts</button>
+        <input type="file" id="importFile" accept="application/json,.json" hidden />
+      </div>
+      <p class="hint">If you export without password, the JSON remains readable. With password, the file content is encrypted and requires the same password to import.</p>
+      <div class="status" id="backupStatus"></div>
     </section>
   </div>
 

@@ -3,7 +3,10 @@ import {
   getActiveAccount,
   getActiveAccountId,
   getAccountById,
+  listAccounts,
   listAccountSummaries,
+  mergeAccounts,
+  replaceAccounts,
   removeAccount,
   setActiveAccountId,
   upsertAccount,
@@ -682,6 +685,40 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       } else if (msg?.type === "account:get-active") {
         const account = await getActiveAccount();
         sendResponse({ ok: true, account: account || null });
+      } else if (msg?.type === "account:export") {
+        const [accounts, activeAccountId] = await Promise.all([
+          listAccounts(),
+          getActiveAccountId(),
+        ]);
+        sendResponse({
+          ok: true,
+          payload: {
+            format: 'bc-account-backup',
+            version: 1,
+            exportedAt: new Date().toISOString(),
+            activeAccountId: activeAccountId || null,
+            accounts,
+          },
+        });
+      } else if (msg?.type === "account:import") {
+        const payload = msg?.payload && typeof msg.payload === 'object' ? msg.payload : null;
+        if (!payload || payload.format !== 'bc-account-backup' || payload.version !== 1 || !Array.isArray(payload.accounts)) {
+          throw new Error('Invalid backup file format.');
+        }
+        const mode = msg?.mode === 'replace' ? 'replace' : 'merge';
+        const result = mode === 'replace'
+          ? await replaceAccounts(payload.accounts, payload.activeAccountId || null)
+          : await mergeAccounts(payload.accounts, payload.activeAccountId || null);
+        await refreshAllBadges();
+        const accounts = await listAccountSummaries();
+        sendResponse({
+          ok: true,
+          mode,
+          importedCount: payload.accounts.length,
+          totalCount: result.count,
+          activeAccountId: result.activeAccountId,
+          accounts,
+        });
       } else if (msg?.type === 'metafields:list') {
         const productId = msg?.productId;
         const entries = await listProductMetafields(productId);

@@ -1,3 +1,5 @@
+import { decryptJSON, encryptJSON } from './crypto.js';
+
 const $ = (id) => document.getElementById(id);
 
 let editingAccountId = null;
@@ -25,6 +27,19 @@ function normalize(value) {
 
 function setFormStatus(message, tone = null) {
   const el = $('formStatus');
+  if (!el) return;
+  el.textContent = message || '';
+  el.className = 'status';
+  if (!message) return;
+  if (tone === 'ok' || tone === true) {
+    el.classList.add('ok');
+  } else if (tone === false || tone === 'error') {
+    el.classList.add('error');
+  }
+}
+
+function setBackupStatus(message, tone = null) {
+  const el = $('backupStatus');
   if (!el) return;
   el.textContent = message || '';
   el.className = 'status';
@@ -218,12 +233,142 @@ function handleAccountListClick(event) {
   }
 }
 
+function buildBackupFilename() {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `bc-accounts-backup-${stamp}.json`;
+}
+
+function downloadJsonFile(content, filename) {
+  const blob = new Blob([content], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+function validateBackupPayload(payload) {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Invalid backup payload.');
+  }
+  if (payload.format !== 'bc-account-backup' || payload.version !== 1 || !Array.isArray(payload.accounts)) {
+    throw new Error('Unsupported backup payload format.');
+  }
+  return payload;
+}
+
+async function resolveImportedPayload(rawFileData, passphrase) {
+  if (!rawFileData || typeof rawFileData !== 'object') {
+    throw new Error('Invalid backup file.');
+  }
+  if (rawFileData.format === 'bc-account-backup' && rawFileData.version === 1) {
+    return validateBackupPayload(rawFileData);
+  }
+  if (rawFileData.format !== 'bc-account-backup-file' || rawFileData.version !== 1) {
+    throw new Error('Unsupported backup file format.');
+  }
+  if (rawFileData.encrypted === true) {
+    if (!passphrase) {
+      throw new Error('This backup is encrypted. Enter the password to import it.');
+    }
+    try {
+      const decrypted = await decryptJSON(rawFileData.data, passphrase);
+      return validateBackupPayload(decrypted);
+    } catch (error) {
+      throw new Error('Could not decrypt backup. Check the password and try again.');
+    }
+  }
+  return validateBackupPayload(rawFileData.payload);
+}
+
+async function exportAccountsBackup() {
+  try {
+    setBackupStatus('');
+    const response = await chrome.runtime.sendMessage({ type: 'account:export' });
+    if (!response?.ok || !response.payload) {
+      throw new Error(response?.error || 'Could not export accounts.');
+    }
+    const passphrase = normalize($('backupPassphrase')?.value);
+    const backupPayload = validateBackupPayload(response.payload);
+    let backupFile;
+    if (passphrase) {
+      const encryptedPayload = await encryptJSON(backupPayload, passphrase);
+      backupFile = {
+        format: 'bc-account-backup-file',
+        version: 1,
+        encrypted: true,
+        algorithm: 'AES-GCM-256',
+        kdf: {
+          name: 'PBKDF2',
+          hash: 'SHA-256',
+          iterations: 150000,
+        },
+        exportedAt: new Date().toISOString(),
+        data: encryptedPayload,
+      };
+    } else {
+      backupFile = {
+        format: 'bc-account-backup-file',
+        version: 1,
+        encrypted: false,
+        exportedAt: new Date().toISOString(),
+        payload: backupPayload,
+      };
+    }
+    downloadJsonFile(JSON.stringify(backupFile, null, 2), buildBackupFilename());
+    setBackupStatus(`Export complete (${backupPayload.accounts.length} account${backupPayload.accounts.length === 1 ? '' : 's'}).`, 'ok');
+  } catch (error) {
+    setBackupStatus(String(error), 'error');
+  }
+}
+
+function openImportPicker() {
+  const input = $('importFile');
+  if (!input) return;
+  input.value = '';
+  input.click();
+}
+
+async function handleImportFileSelection(event) {
+  const input = event?.target;
+  if (!(input instanceof HTMLInputElement) || !input.files || input.files.length === 0) return;
+  const file = input.files[0];
+  try {
+    setBackupStatus('');
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+    const passphrase = normalize($('backupPassphrase')?.value);
+    const payload = await resolveImportedPayload(parsed, passphrase);
+    const mode = $('importReplaceMode')?.checked ? 'replace' : 'merge';
+    const response = await chrome.runtime.sendMessage({ type: 'account:import', payload, mode });
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Could not import accounts.');
+    }
+    activeAccountId = response.activeAccountId || null;
+    await loadAccounts();
+    setBackupStatus(
+      `Import complete. ${response.importedCount || 0} account${(response.importedCount || 0) === 1 ? '' : 's'} processed, ${response.totalCount || accountSummaries.length} total.`,
+      'ok',
+    );
+  } catch (error) {
+    setBackupStatus(String(error), 'error');
+  } finally {
+    input.value = '';
+  }
+}
+
 function init() {
   $('accountForm').addEventListener('submit', saveAccount);
   $('resetForm').addEventListener('click', () => {
     resetForm();
   });
   $('accountList').addEventListener('click', handleAccountListClick);
+  $('exportAccounts')?.addEventListener('click', exportAccountsBackup);
+  $('importAccounts')?.addEventListener('click', openImportPicker);
+  $('importFile')?.addEventListener('change', handleImportFileSelection);
   updateFormTitle();
   loadAccounts();
 }
