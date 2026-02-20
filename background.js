@@ -231,18 +231,36 @@ function normalizeCustomerResult({ source, customer, request }) {
 const B2B_ENTITY_CONFIG = {
   company: {
     label: "company",
-    idPaths: ["companies/{id}"],
-    emailPaths: ["companies?email={email}", "companies?email:in={email}"],
+    idPaths: ["companies/{id}", "company/{id}"],
+    emailPaths: [
+      "companies?email={email}",
+      "companies?email:in={email}",
+      "companies?company_email={email}",
+      "companies?keyword={email}",
+    ],
+    listPaths: ["companies?limit=250", "companies"],
   },
   "company-user": {
     label: "company user",
-    idPaths: ["company-users/{id}", "users/{id}"],
+    idPaths: [
+      "company-users/{id}",
+      "company-users?id={id}",
+      "users/{id}",
+      "users?id={id}",
+      "companyUsers/{id}",
+    ],
     emailPaths: [
       "company-users?email={email}",
       "company-users?email:in={email}",
+      "company-users?user_email={email}",
       "users?email={email}",
       "users?email:in={email}",
+      "users?user_email={email}",
+      "companyUsers?email={email}",
+      "company-users?keyword={email}",
+      "users?keyword={email}",
     ],
+    listPaths: ["company-users?limit=250", "users?limit=250", "companyUsers?limit=250"],
   },
   order: {
     label: "B2B order",
@@ -264,7 +282,6 @@ const B2B_ENTITY_CONFIG = {
 function buildB2BBaseUrls(storeHash) {
   const hash = encodeURIComponent(storeHash);
   return [
-    `https://api.bigcommerce.com/stores/${hash}/v3/b2b`,
     `https://api-b2b.bigcommerce.com/api/v3/io/stores/${hash}`,
     `https://api-b2b.bigcommerce.com/api/v2/io/stores/${hash}`,
   ];
@@ -747,6 +764,74 @@ async function fetchB2BEntityWithPaths({ cfg, entityType, paths }) {
   return null;
 }
 
+function matchesB2BEntity(entityType, payload, { lookupId = "", email = "" } = {}) {
+  const data = payload && typeof payload === "object" ? payload : {};
+  const idNeedle = String(lookupId || "").trim();
+  const emailNeedle = String(email || "").trim().toLowerCase();
+  const candidateIds = [
+    data.id,
+    data.company_id,
+    data.user_id,
+    data.order_id,
+    data.invoice_id,
+    data.quote_id,
+  ].filter((value) => value != null).map((value) => String(value).trim());
+  const candidateEmails = [
+    data.email,
+    data.user_email,
+    data.company_email,
+    data.contact_email,
+  ].filter((value) => value != null).map((value) => String(value).trim().toLowerCase());
+  if (idNeedle && candidateIds.some((value) => value === idNeedle)) {
+    return true;
+  }
+  if (emailNeedle && candidateEmails.some((value) => value === emailNeedle)) {
+    return true;
+  }
+  return false;
+}
+
+async function fetchB2BEntityFromList({ cfg, entityType, lookupId, email }) {
+  const entityConfig = B2B_ENTITY_CONFIG[entityType];
+  const listPaths = Array.isArray(entityConfig?.listPaths) ? entityConfig.listPaths : [];
+  if (listPaths.length === 0) {
+    return null;
+  }
+  const baseUrls = buildB2BBaseUrls(cfg.storeHash);
+  const headers = authHeaders(cfg);
+
+  for (const listPath of listPaths) {
+    for (const baseUrl of baseUrls) {
+      const url = `${baseUrl}/${listPath}`;
+      try {
+        const response = await fetch(url, { headers });
+        if (!response.ok) {
+          continue;
+        }
+        const text = await response.text();
+        if (!text) continue;
+        const json = JSON.parse(text);
+        let entries = [];
+        if (Array.isArray(json)) {
+          entries = json;
+        } else if (Array.isArray(json?.data)) {
+          entries = json.data;
+        } else if (Array.isArray(json?.results)) {
+          entries = json.results;
+        }
+        if (!entries.length) continue;
+        const match = entries.find((entry) => matchesB2BEntity(entityType, entry, { lookupId, email }));
+        if (match) {
+          return { payload: match, source: `${baseUrl}/${listPath} (filtered)` };
+        }
+      } catch (error) {
+        // continue trying other list endpoints
+      }
+    }
+  }
+  return null;
+}
+
 async function bcLookupB2B(cfg, request) {
   const entityType = String(request.b2bEntity || "").toLowerCase();
   const entityConfig = B2B_ENTITY_CONFIG[entityType];
@@ -793,6 +878,21 @@ async function bcLookupB2B(cfg, request) {
         request: requestDetails,
       });
     }
+  }
+
+  const byList = await fetchB2BEntityFromList({
+    cfg,
+    entityType,
+    lookupId: rawLookupId,
+    email: rawEmail,
+  });
+  if (byList?.payload) {
+    return normalizeB2BResult({
+      entityType,
+      source: byList.source,
+      payload: byList.payload,
+      request: requestDetails,
+    });
   }
 
   throw new Error(`${entityConfig.label} not found in BigCommerce B2B.`);
