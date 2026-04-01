@@ -360,6 +360,25 @@ async function handleImportFileSelection(event) {
   }
 }
 
+async function clearAccountCookies() {
+  const confirmed = confirm('This will remove all saved BigCommerce accounts from this browser. Continue?');
+  if (!confirmed) return;
+  try {
+    const response = await chrome.runtime.sendMessage({ type: 'account:clear-all' });
+    if (!response?.ok) {
+      throw new Error(response?.error || 'Could not clear account cookies.');
+    }
+    accountSummaries = [];
+    activeAccountId = null;
+    renderAccountList();
+    resetForm();
+    setBackupStatus('Account cookies cleared. You can now create the account again.', 'ok');
+    setFormStatus('All account cookies were cleared.', 'ok');
+  } catch (error) {
+    setBackupStatus(String(error), 'error');
+  }
+}
+
 function init() {
   $('accountForm').addEventListener('submit', saveAccount);
   $('resetForm').addEventListener('click', () => {
@@ -369,6 +388,7 @@ function init() {
   $('exportAccounts')?.addEventListener('click', exportAccountsBackup);
   $('importAccounts')?.addEventListener('click', openImportPicker);
   $('importFile')?.addEventListener('change', handleImportFileSelection);
+  $('clearAccountCookies')?.addEventListener('click', clearAccountCookies);
   updateFormTitle();
   loadAccounts();
 }

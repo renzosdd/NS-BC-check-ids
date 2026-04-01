@@ -28,8 +28,16 @@ async function readAccountsCookie() {
     if (!cookie || !cookie.value) {
       return [];
     }
-    const decoded = decodeURIComponent(cookie.value);
-    const parsed = JSON.parse(decoded);
+    let parsed;
+    try {
+      const decoded = decodeURIComponent(cookie.value);
+      parsed = JSON.parse(decoded);
+    } catch (parseError) {
+      console.warn('Accounts cookie is invalid. Clearing it to recover.', parseError);
+      await chrome.cookies.remove({ url: COOKIE_URL, name: COOKIE_NAME }).catch(() => null);
+      await Promise.all(LEGACY_COOKIE_URLS.map((url) => chrome.cookies.remove({ url, name: COOKIE_NAME }).catch(() => null)));
+      return [];
+    }
     if (!Array.isArray(parsed)) {
       return [];
     }
@@ -199,6 +207,7 @@ export function formatAccountLabel(account) {
 
 export async function clearAccounts() {
   await chrome.cookies.remove({ url: COOKIE_URL, name: COOKIE_NAME });
+  await Promise.all(LEGACY_COOKIE_URLS.map((url) => chrome.cookies.remove({ url, name: COOKIE_NAME }).catch(() => null)));
   await setActiveAccountId(null);
 }
 

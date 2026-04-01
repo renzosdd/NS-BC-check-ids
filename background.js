@@ -6,6 +6,7 @@ import {
   listAccounts,
   listAccountSummaries,
   mergeAccounts,
+  clearAccounts,
   replaceAccounts,
   removeAccount,
   setActiveAccountId,
@@ -1036,6 +1037,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           getActiveAccountId(),
         ]);
         sendResponse({ ok: removed, accounts, activeAccountId });
+      } else if (msg?.type === "account:clear-all") {
+        await clearAccounts();
+        await refreshAllBadges();
+        sendResponse({ ok: true, accounts: [], activeAccountId: null });
       } else if (msg?.type === "account:set-active") {
         await setActiveAccountId(msg?.id || null);
         await refreshAllBadges();
