@@ -1,4 +1,5 @@
-const COOKIE_URL = 'https://bc-sku-lookup.local/';
+const COOKIE_URL = 'https://localhost/';
+const LEGACY_COOKIE_URLS = ['https://bc-sku-lookup.local/'];
 const COOKIE_NAME = 'bc_accounts_v1';
 const ACTIVE_ACCOUNT_KEY = 'bc_active_account_id';
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 10; // 10 years
@@ -17,7 +18,13 @@ function generateId() {
 
 async function readAccountsCookie() {
   try {
-    const cookie = await chrome.cookies.get({ url: COOKIE_URL, name: COOKIE_NAME });
+    let cookie = await chrome.cookies.get({ url: COOKIE_URL, name: COOKIE_NAME });
+    if ((!cookie || !cookie.value) && Array.isArray(LEGACY_COOKIE_URLS) && LEGACY_COOKIE_URLS.length > 0) {
+      for (const legacyUrl of LEGACY_COOKIE_URLS) {
+        cookie = await chrome.cookies.get({ url: legacyUrl, name: COOKIE_NAME });
+        if (cookie && cookie.value) break;
+      }
+    }
     if (!cookie || !cookie.value) {
       return [];
     }
@@ -80,6 +87,7 @@ async function writeAccountsCookie(accounts) {
     secure: true,
     sameSite: 'strict',
   });
+  await Promise.all(LEGACY_COOKIE_URLS.map((url) => chrome.cookies.remove({ url, name: COOKIE_NAME }).catch(() => null)));
   return sanitized;
 }
 
