@@ -245,49 +245,89 @@ function normalizeCustomerResult({ source, customer, request }) {
 const B2B_ENTITY_CONFIG = {
   company: {
     label: "company",
-    idPaths: ["companies/{id}"],
+    idPaths: [
+      "companies/{id}",
+      "company/{id}",
+      "companies?id={id}",
+      "companies?companyId={id}",
+      "companies?company_id={id}",
+    ],
     emailPaths: [
       "companies?email={email}",
       "companies?email:in={email}",
+      "companies?companyEmail={email}",
+      "companies?company_email={email}",
+      "companies?contactEmail={email}",
+      "companies?contact_email={email}",
       "companies?keyword={email}",
     ],
-    listPaths: ["companies?limit=250"],
+    keywordPaths: [
+      "companies?keyword={keyword}",
+      "companies?companyName={keyword}",
+      "companies?company_name={keyword}",
+      "companies?name={keyword}",
+    ],
+    listPaths: ["companies?limit=250", "companies"],
   },
   "company-user": {
     label: "company user",
     idPaths: [
+      "company-users/{id}",
+      "company-users?id={id}",
       "users/{id}",
+      "users?id={id}",
+      "companyUsers/{id}",
     ],
     emailPaths: [
+      "company-users?email={email}",
+      "company-users?email:in={email}",
+      "company-users?userEmail={email}",
+      "company-users?user_email={email}",
       "users?email={email}",
       "users?email:in={email}",
+      "users?userEmail={email}",
+      "users?user_email={email}",
+      "companyUsers?email={email}",
+      "company-users?keyword={email}",
       "users?keyword={email}",
     ],
-    listPaths: ["users?limit=250"],
+    keywordPaths: [],
+    listPaths: ["company-users?limit=250", "users?limit=250", "companyUsers?limit=250"],
   },
   order: {
     label: "B2B order",
     idPaths: ["orders/{id}"],
     emailPaths: [],
+    keywordPaths: [],
     listPaths: ["orders?limit=250"],
   },
   invoice: {
     label: "invoice",
     idPaths: ["invoices/{id}"],
     emailPaths: [],
+    keywordPaths: [],
     listPaths: ["invoices?limit=250"],
   },
   quote: {
     label: "quote",
     idPaths: ["quotes/{id}"],
     emailPaths: [],
+    keywordPaths: [],
     listPaths: ["quotes?limit=250"],
   },
 };
 
-function buildB2BBaseUrls() {
+function buildB2BBaseUrls(storeHash) {
+  const hash = encodeURIComponent(String(storeHash || "").trim());
+  const storeScopedUrls = hash
+    ? [
+        `https://api-b2b.bigcommerce.com/api/v3/io/stores/${hash}`,
+        `https://api-b2b.bigcommerce.com/api/v2/io/stores/${hash}`,
+      ]
+    : [];
   return [
     "https://api-b2b.bigcommerce.com/api/v3/io",
+    ...storeScopedUrls,
   ];
 }
 
@@ -324,29 +364,47 @@ function extractB2BPayload(json) {
   return json;
 }
 
+function extractB2BEntries(json) {
+  if (!json) return [];
+  if (Array.isArray(json)) {
+    return json.filter((entry) => entry && typeof entry === "object");
+  }
+  if (typeof json !== "object") {
+    return [];
+  }
+  if (Array.isArray(json.data)) {
+    return json.data.filter((entry) => entry && typeof entry === "object");
+  }
+  if (Array.isArray(json.results)) {
+    return json.results.filter((entry) => entry && typeof entry === "object");
+  }
+  const payload = extractB2BPayload(json);
+  return payload && typeof payload === "object" ? [payload] : [];
+}
+
 function normalizeB2BData(entityType, payload) {
   const data = payload && typeof payload === "object" ? payload : {};
   const base = {
-    id: data.id ?? data.company_id ?? data.user_id ?? data.order_id ?? data.invoice_id ?? data.quote_id ?? null,
-    companyId: data.company_id ?? data.companyId ?? null,
-    email: data.email ?? data.user_email ?? data.company_email ?? null,
-    status: data.status ?? data.state ?? null,
-    dateCreated: data.date_created ?? data.created_at ?? data.createdAt ?? null,
-    dateModified: data.date_modified ?? data.updated_at ?? data.updatedAt ?? null,
+    id: data.id ?? data.company_id ?? data.companyId ?? data.user_id ?? data.userId ?? data.order_id ?? data.orderId ?? data.invoice_id ?? data.invoiceId ?? data.quote_id ?? data.quoteId ?? null,
+    companyId: data.company_id ?? data.companyId ?? data.id ?? null,
+    email: data.email ?? data.user_email ?? data.userEmail ?? data.company_email ?? data.companyEmail ?? data.contact_email ?? data.contactEmail ?? null,
+    status: data.status ?? data.state ?? data.companyStatus ?? data.company_status ?? null,
+    dateCreated: data.date_created ?? data.created_at ?? data.createdAt ?? data.createdTime ?? null,
+    dateModified: data.date_modified ?? data.updated_at ?? data.updatedAt ?? data.updatedTime ?? null,
   };
   if (entityType === "company") {
     return {
       ...base,
-      name: data.name ?? data.company_name ?? null,
-      phone: data.phone ?? null,
-      customerGroupId: data.customer_group_id ?? null,
+      name: data.name ?? data.company_name ?? data.companyName ?? null,
+      phone: data.phone ?? data.phoneNumber ?? data.phone_number ?? null,
+      customerGroupId: data.customer_group_id ?? data.customerGroupId ?? null,
     };
   }
   if (entityType === "company-user") {
     return {
       ...base,
-      firstName: data.first_name ?? data.firstName ?? null,
-      lastName: data.last_name ?? data.lastName ?? null,
+      firstName: data.first_name ?? data.firstName ?? data.first_name_en ?? null,
+      lastName: data.last_name ?? data.lastName ?? data.last_name_en ?? null,
       role: data.role ?? data.role_name ?? null,
     };
   }
@@ -732,8 +790,8 @@ async function bcLookupCustomer(cfg, request) {
   throw new Error("Customer not found in BigCommerce.");
 }
 
-async function fetchB2BEntityWithPaths({ cfg, entityType, paths }) {
-  const baseUrls = buildB2BBaseUrls();
+async function fetchB2BEntityWithPaths({ cfg, entityType, paths, matchCriteria = null }) {
+  const baseUrls = buildB2BBaseUrls(cfg.storeHash);
   const headers = authHeadersB2B(cfg);
   let lastNon404Error = null;
   let attempted = 0;
@@ -757,7 +815,13 @@ async function fetchB2BEntityWithPaths({ cfg, entityType, paths }) {
         const text = await response.text();
         if (!text) continue;
         const json = JSON.parse(text);
-        const payload = extractB2BPayload(json);
+        let payload = null;
+        if (matchCriteria) {
+          const entries = extractB2BEntries(json);
+          payload = entries.find((entry) => matchesB2BEntity(entityType, entry, matchCriteria)) || null;
+        } else {
+          payload = extractB2BPayload(json);
+        }
         if (payload && typeof payload === "object") {
           return { payload, source: `${baseUrl}/${path}`, attempted, notFound };
         }
@@ -772,23 +836,45 @@ async function fetchB2BEntityWithPaths({ cfg, entityType, paths }) {
   return { payload: null, source: null, attempted, notFound };
 }
 
-function matchesB2BEntity(entityType, payload, { lookupId = "", email = "" } = {}) {
+function matchesB2BEntity(entityType, payload, { lookupId = "", email = "", keyword = "" } = {}) {
   const data = payload && typeof payload === "object" ? payload : {};
   const idNeedle = String(lookupId || "").trim();
   const emailNeedle = String(email || "").trim().toLowerCase();
+  const keywordNeedle = String(keyword || "").trim().toLowerCase();
   const candidateIds = [
     data.id,
     data.company_id,
+    data.companyId,
     data.user_id,
+    data.userId,
     data.order_id,
+    data.orderId,
     data.invoice_id,
+    data.invoiceId,
     data.quote_id,
+    data.quoteId,
+    data.bc_id,
+    data.bcId,
+    data.external_id,
+    data.externalId,
   ].filter((value) => value != null).map((value) => String(value).trim());
   const candidateEmails = [
     data.email,
     data.user_email,
+    data.userEmail,
     data.company_email,
+    data.companyEmail,
     data.contact_email,
+    data.contactEmail,
+  ].filter((value) => value != null).map((value) => String(value).trim().toLowerCase());
+  const candidateKeywords = [
+    data.name,
+    data.company_name,
+    data.companyName,
+    data.company_code,
+    data.companyCode,
+    data.customer_group_name,
+    data.customerGroupName,
   ].filter((value) => value != null).map((value) => String(value).trim().toLowerCase());
   if (idNeedle && candidateIds.some((value) => value === idNeedle)) {
     return true;
@@ -796,16 +882,19 @@ function matchesB2BEntity(entityType, payload, { lookupId = "", email = "" } = {
   if (emailNeedle && candidateEmails.some((value) => value === emailNeedle)) {
     return true;
   }
+  if (keywordNeedle && candidateKeywords.some((value) => value === keywordNeedle || value.includes(keywordNeedle))) {
+    return true;
+  }
   return false;
 }
 
-async function fetchB2BEntityFromList({ cfg, entityType, lookupId, email }) {
+async function fetchB2BEntityFromList({ cfg, entityType, lookupId, email, keyword }) {
   const entityConfig = B2B_ENTITY_CONFIG[entityType];
   const listPaths = Array.isArray(entityConfig?.listPaths) ? entityConfig.listPaths : [];
   if (listPaths.length === 0) {
     return null;
   }
-  const baseUrls = buildB2BBaseUrls();
+  const baseUrls = buildB2BBaseUrls(cfg.storeHash);
   const headers = authHeadersB2B(cfg);
 
   for (const listPath of listPaths) {
@@ -828,7 +917,7 @@ async function fetchB2BEntityFromList({ cfg, entityType, lookupId, email }) {
           entries = json.results;
         }
         if (!entries.length) continue;
-        const match = entries.find((entry) => matchesB2BEntity(entityType, entry, { lookupId, email }));
+        const match = entries.find((entry) => matchesB2BEntity(entityType, entry, { lookupId, email, keyword }));
         if (match) {
           return { payload: match, source: `${baseUrl}/${listPath} (filtered)` };
         }
@@ -849,23 +938,29 @@ async function bcLookupB2B(cfg, request) {
 
   const rawLookupId = uniqueStrings(request.lookupId ?? null, request.id ?? null)[0] || "";
   const rawEmail = uniqueStrings(request.email ?? null)[0] || "";
+  const rawKeyword = uniqueStrings(request.keyword ?? null)[0] || "";
   const requestDetails = {
     entity: entityType,
     lookupId: rawLookupId || null,
     email: rawEmail || null,
+    keyword: rawKeyword || null,
   };
   const lookupDiagnostics = [];
 
-  if (!rawLookupId && !rawEmail) {
-    throw new Error(`Provide a ${entityType === "company-user" ? "company user" : entityType} ID${entityConfig.emailPaths.length > 0 ? " or email" : ""}.`);
+  if (!rawLookupId && !rawEmail && !rawKeyword) {
+    const keywordHelp = entityConfig.keywordPaths.length > 0 ? ", name, or keyword" : "";
+    throw new Error(`Provide a ${entityType === "company-user" ? "company user" : entityType} ID${entityConfig.emailPaths.length > 0 ? " or email" : ""}${keywordHelp}.`);
   }
-  if (!rawLookupId && rawEmail && entityConfig.emailPaths.length === 0) {
+  if (!rawLookupId && !rawKeyword && rawEmail && entityConfig.emailPaths.length === 0) {
     throw new Error(`${entityConfig.label} lookups support ID only.`);
+  }
+  if (rawKeyword && entityConfig.keywordPaths.length === 0) {
+    throw new Error(`${entityConfig.label} lookups do not support keyword search.`);
   }
 
   if (rawLookupId) {
     const idPaths = resolveB2BPaths(entityConfig.idPaths, { id: rawLookupId });
-    const byId = await fetchB2BEntityWithPaths({ cfg, entityType, paths: idPaths });
+    const byId = await fetchB2BEntityWithPaths({ cfg, entityType, paths: idPaths, matchCriteria: { lookupId: rawLookupId } });
     if (byId?.payload) {
       return normalizeB2BResult({
         entityType,
@@ -881,7 +976,7 @@ async function bcLookupB2B(cfg, request) {
 
   if (rawEmail && entityConfig.emailPaths.length > 0) {
     const emailPaths = resolveB2BPaths(entityConfig.emailPaths, { email: rawEmail });
-    const byEmail = await fetchB2BEntityWithPaths({ cfg, entityType, paths: emailPaths });
+    const byEmail = await fetchB2BEntityWithPaths({ cfg, entityType, paths: emailPaths, matchCriteria: { email: rawEmail } });
     if (byEmail?.payload) {
       return normalizeB2BResult({
         entityType,
@@ -895,11 +990,28 @@ async function bcLookupB2B(cfg, request) {
     }
   }
 
+  if (rawKeyword && entityConfig.keywordPaths.length > 0) {
+    const keywordPaths = resolveB2BPaths(entityConfig.keywordPaths, { keyword: rawKeyword });
+    const byKeyword = await fetchB2BEntityWithPaths({ cfg, entityType, paths: keywordPaths, matchCriteria: { keyword: rawKeyword } });
+    if (byKeyword?.payload) {
+      return normalizeB2BResult({
+        entityType,
+        source: byKeyword.source,
+        payload: byKeyword.payload,
+        request: requestDetails,
+      });
+    }
+    if (Number.isFinite(byKeyword?.attempted)) {
+      lookupDiagnostics.push(`keyword attempts: ${byKeyword.attempted}, 404: ${byKeyword.notFound || 0}`);
+    }
+  }
+
   const byList = await fetchB2BEntityFromList({
     cfg,
     entityType,
     lookupId: rawLookupId,
     email: rawEmail,
+    keyword: rawKeyword,
   });
   if (byList?.payload) {
     return normalizeB2BResult({
@@ -1094,7 +1206,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         sendResponse({ ok: true, productId, entries });
       }
     } catch (e) {
-      sendResponse({ ok: false, error: String(e) });
+      sendResponse({ ok: false, error: e?.message || String(e) });
     }
   })();
   return true;

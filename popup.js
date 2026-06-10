@@ -880,7 +880,7 @@ function updateLookupControls() {
   };
 
   const b2bPlaceholders = {
-    company: 'Company email or ID...',
+    company: 'Company email, name, or ID...',
     'company-user': 'Company user email or ID...',
     order: 'B2B order ID...',
     invoice: 'Invoice ID...',
@@ -1040,12 +1040,15 @@ function collectB2BLookupCriteria() {
     b2bEntity: entity,
     lookupId: null,
     email: null,
+    keyword: null,
   };
   if (!inputValue) {
     return criteria;
   }
   if (isEmail && supportsEmail) {
     criteria.email = inputValue;
+  } else if (entity === 'company' && !/^\d+$/.test(inputValue)) {
+    criteria.keyword = inputValue;
   } else {
     criteria.lookupId = inputValue;
   }
@@ -1149,8 +1152,8 @@ async function performB2BLookup() {
   const entity = criteria.b2bEntity;
   const label = entity === 'company-user' ? 'company user' : entity;
   const requiresIdOnly = entity === 'order' || entity === 'invoice' || entity === 'quote';
-  if (!criteria.lookupId && !criteria.email) {
-    setStatus(`Provide a ${label} ${requiresIdOnly ? 'ID' : 'email or ID'}.`, false);
+  if (!criteria.lookupId && !criteria.email && !criteria.keyword) {
+    setStatus(`Provide a ${label} ${requiresIdOnly ? 'ID' : entity === 'company' ? 'email, name, or ID' : 'email or ID'}.`, false);
     return;
   }
   if (requiresIdOnly && criteria.email) {
@@ -1165,6 +1168,7 @@ async function performB2BLookup() {
       b2bEntity: entity,
       lookupId: criteria.lookupId,
       email: criteria.email,
+      keyword: criteria.keyword,
     });
     if (res?.ok) {
       renderBCCard(res?.data ?? null);

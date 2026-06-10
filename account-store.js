@@ -1,8 +1,8 @@
 const COOKIE_URL = 'https://localhost/';
 const LEGACY_COOKIE_URLS = ['https://bc-sku-lookup.local/'];
 const COOKIE_NAME = 'bc_accounts_v1';
+const ACCOUNTS_STORAGE_KEY = 'bc_accounts_v1';
 const ACTIVE_ACCOUNT_KEY = 'bc_active_account_id';
-const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365 * 10; // 10 years
 
 function normalizeString(value) {
   if (value == null) return '';
@@ -16,8 +16,63 @@ function generateId() {
   return `acc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+async function removeLegacyAccountsCookies() {
+  await chrome.cookies.remove({ url: COOKIE_URL, name: COOKIE_NAME }).catch(() => null);
+  await Promise.all(LEGACY_COOKIE_URLS.map((url) => chrome.cookies.remove({ url, name: COOKIE_NAME }).catch(() => null)));
+}
+
+function sanitizeAccounts(accounts) {
+  const sanitized = [];
+  let needsRewrite = false;
+
+  (Array.isArray(accounts) ? accounts : []).forEach((entry) => {
+    if (!entry || typeof entry !== 'object') {
+      needsRewrite = true;
+      return;
+    }
+    try {
+      const normalized = sanitizeAccountForStorage(entry);
+      sanitized.push(normalized);
+      if (
+        normalized.id !== entry.id
+        || normalized.name !== entry.name
+        || normalized.storeHash !== entry.storeHash
+        || normalized.accessToken !== entry.accessToken
+        || normalized.clientId !== entry.clientId
+      ) {
+        needsRewrite = true;
+      }
+    } catch (error) {
+      console.warn('Skipping invalid account entry', error);
+      needsRewrite = true;
+    }
+  });
+
+  return { sanitized, needsRewrite };
+}
+
+async function writeAccountsStore(accounts) {
+  const { sanitized } = sanitizeAccounts(accounts);
+  await chrome.storage.local.set({ [ACCOUNTS_STORAGE_KEY]: sanitized });
+  await removeLegacyAccountsCookies();
+  return sanitized;
+}
+
 async function readAccountsCookie() {
   try {
+    const stored = await chrome.storage.local.get({ [ACCOUNTS_STORAGE_KEY]: null });
+    if (Array.isArray(stored[ACCOUNTS_STORAGE_KEY])) {
+      const { sanitized, needsRewrite } = sanitizeAccounts(stored[ACCOUNTS_STORAGE_KEY]);
+      if (needsRewrite) {
+        try {
+          await writeAccountsStore(sanitized);
+        } catch (error) {
+          console.warn('Failed to rewrite stored accounts', error);
+        }
+      }
+      return sanitized;
+    }
+
     let cookie = await chrome.cookies.get({ url: COOKIE_URL, name: COOKIE_NAME });
     if ((!cookie || !cookie.value) && Array.isArray(LEGACY_COOKIE_URLS) && LEGACY_COOKIE_URLS.length > 0) {
       for (const legacyUrl of LEGACY_COOKIE_URLS) {
@@ -34,46 +89,18 @@ async function readAccountsCookie() {
       parsed = JSON.parse(decoded);
     } catch (parseError) {
       console.warn('Accounts cookie is invalid. Clearing it to recover.', parseError);
-      await chrome.cookies.remove({ url: COOKIE_URL, name: COOKIE_NAME }).catch(() => null);
-      await Promise.all(LEGACY_COOKIE_URLS.map((url) => chrome.cookies.remove({ url, name: COOKIE_NAME }).catch(() => null)));
+      await removeLegacyAccountsCookies();
       return [];
     }
     if (!Array.isArray(parsed)) {
       return [];
     }
 
-    const sanitized = [];
-    let needsRewrite = false;
-
-    parsed.forEach((entry) => {
-      if (!entry || typeof entry !== 'object') {
-        needsRewrite = true;
-        return;
-      }
-      try {
-        const normalized = sanitizeAccountForStorage(entry);
-        sanitized.push(normalized);
-        if (
-          normalized.id !== entry.id
-          || normalized.name !== entry.name
-          || normalized.storeHash !== entry.storeHash
-          || normalized.accessToken !== entry.accessToken
-          || normalized.clientId !== entry.clientId
-        ) {
-          needsRewrite = true;
-        }
-      } catch (error) {
-        console.warn('Skipping invalid account entry', error);
-        needsRewrite = true;
-      }
-    });
-
-    if (needsRewrite) {
-      try {
-        await writeAccountsCookie(sanitized);
-      } catch (error) {
-        console.warn('Failed to rewrite accounts cookie', error);
-      }
+    const { sanitized } = sanitizeAccounts(parsed);
+    try {
+      await writeAccountsStore(sanitized);
+    } catch (error) {
+      console.warn('Failed to migrate accounts cookie to extension storage', error);
     }
 
     return sanitized;
@@ -81,22 +108,6 @@ async function readAccountsCookie() {
     console.warn('Failed to read accounts cookie', error);
     return [];
   }
-}
-
-async function writeAccountsCookie(accounts) {
-  const sanitized = Array.isArray(accounts) ? accounts.filter((entry) => entry && typeof entry === 'object') : [];
-  const encoded = encodeURIComponent(JSON.stringify(sanitized));
-  const expirationDate = Math.floor(Date.now() / 1000) + COOKIE_MAX_AGE_SECONDS;
-  await chrome.cookies.set({
-    url: COOKIE_URL,
-    name: COOKIE_NAME,
-    value: encoded,
-    expirationDate,
-    secure: true,
-    sameSite: 'strict',
-  });
-  await Promise.all(LEGACY_COOKIE_URLS.map((url) => chrome.cookies.remove({ url, name: COOKIE_NAME }).catch(() => null)));
-  return sanitized;
 }
 
 function sanitizeAccountForStorage(account) {
@@ -139,7 +150,7 @@ export async function upsertAccount(account) {
   } else {
     accounts.push(sanitized);
   }
-  await writeAccountsCookie(accounts);
+  await writeAccountsStore(accounts);
   return sanitized;
 }
 
@@ -150,7 +161,7 @@ export async function removeAccount(accountId) {
   if (filtered.length === accounts.length) {
     return false;
   }
-  await writeAccountsCookie(filtered);
+  await writeAccountsStore(filtered);
   const activeId = await getActiveAccountId();
   if (activeId && activeId === id) {
     await setActiveAccountId(filtered[0]?.id ?? null);
@@ -206,8 +217,8 @@ export function formatAccountLabel(account) {
 }
 
 export async function clearAccounts() {
-  await chrome.cookies.remove({ url: COOKIE_URL, name: COOKIE_NAME });
-  await Promise.all(LEGACY_COOKIE_URLS.map((url) => chrome.cookies.remove({ url, name: COOKIE_NAME }).catch(() => null)));
+  await chrome.storage.local.remove(ACCOUNTS_STORAGE_KEY);
+  await removeLegacyAccountsCookies();
   await setActiveAccountId(null);
 }
 
@@ -222,7 +233,7 @@ function uniqueAccountsById(accounts) {
 
 export async function replaceAccounts(accounts, activeAccountId = null) {
   const normalizedAccounts = uniqueAccountsById(accounts);
-  await writeAccountsCookie(normalizedAccounts);
+  await writeAccountsStore(normalizedAccounts);
   const requestedActiveId = normalizeString(activeAccountId);
   const hasRequestedActive = !!(requestedActiveId && normalizedAccounts.some((entry) => entry.id === requestedActiveId));
   const nextActive = hasRequestedActive ? requestedActiveId : (normalizedAccounts[0]?.id || null);
@@ -241,7 +252,7 @@ export async function mergeAccounts(accounts, activeAccountId = null) {
     mergedById.set(normalized.id, normalized);
   });
   const merged = Array.from(mergedById.values());
-  await writeAccountsCookie(merged);
+  await writeAccountsStore(merged);
 
   const currentActiveId = await getActiveAccountId();
   const requestedActiveId = normalizeString(activeAccountId);
